@@ -39,7 +39,8 @@ test('parseSourceFile: extracts bullets', () => {
   const parsed = parseSourceFile(sample);
   assert.equal(parsed.bullets.length, 2);
   assert.match(parsed.bullets[0].text, /distributed queue/);
-  assert.equal(parsed.bullets[0].lineNumber, 11);
+  assert.equal(parsed.bullets[0].lineNumber, 12);
+  assert.equal(parsed.bullets[1].lineNumber, 13);
 });
 
 test('parseSourceFile: extracts projects (top-level only, not indented details)', () => {

@@ -25,7 +25,10 @@ export function parseSourceFile(content) {
     }
   }
   const body = m[2];
-  const bodyOffset = m[1].split('\n').length + 2;  // 1 for opening ---, 1 for closing ---
+  // bodyOffset = 1-based file line where `body` (m[2]) starts.
+  // Layout: line 1 = opening `---`, lines 2..(N+1) = N frontmatter lines,
+  // line (N+2) = closing `---`, line (N+3) = first body line.
+  const bodyOffset = m[1].split('\n').length + 3;
 
   const bullets = extractSection(body, 'Bullets', bodyOffset);
   const projects = extractSection(body, 'Projects', bodyOffset, true);
