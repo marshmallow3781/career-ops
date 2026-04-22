@@ -380,3 +380,117 @@ export function loadArticleDigest(rootDir) {
   const content = readFileSync(path, 'utf-8');
   return parseArticleDigest(content, 'article-digest.md');
 }
+
+// ── Signal detection ────────────────────────────────────────────────
+
+/**
+ * Signal detection table — deterministic regex over a curated vocabulary.
+ * Used by extractJdIntent (as raw material for the LLM prompt and as a
+ * fallback source when the LLM call fails twice), and by
+ * .cv-tailored-meta.json telemetry.
+ *
+ * Each entry maps a signal name to a list of case-insensitive aliases.
+ * Aliases are matched with word-boundary regex. Signals fire independently.
+ *
+ * Design note: "library" and "framework" were intentionally excluded from
+ * `sdk` to avoid false positives on "PyTorch framework" / "React library".
+ * A genuine SDK JD uses "SDK", "client library", "platform SDK" etc.
+ */
+export const SIGNAL_TABLE = {
+  sdk:            ['sdk', 'sdks', 'software development kit', 'client library', 'developer api', 'api client', 'shared library', 'toolkit', 'internal sdk', 'service sdk', 'platform sdk', 'developer tooling'],
+  platform:       ['platform', 'internal tooling', 'developer platform', 'infra', 'infrastructure', 'shared infrastructure', 'self-serve platform', 'internal platform', 'enablement', 'foundational', 'core infrastructure', 'platform team', 'common services', 'shared services', 'service platform'],
+  feature_store:  ['feature store', 'feature platform', 'online feature serving', 'offline feature store', 'feature pipeline', 'feature computation', 'feature generation', 'feature materialization', 'feature registry', 'feature retrieval', 'feature serving', 'feature freshness', 'tecton', 'feast'],
+  training_infra: ['training platform', 'training infra', 'distributed training', 'fine-tuning', 'fine tuning', 'model training', 'training pipeline', 'training workflow', 'training orchestration', 'ml training', 'pytorch lightning', 'horovod', 'kubeflow', 'airflow', 'sagemaker training', 'gpu training', 'multi-gpu', 'multi-node training', 'distributed optimizer', 'hyperparameter tuning', 'hpo'],
+  serving:        ['model serving', 'inference', 'batch inference', 'online inference', 'real-time inference', 'prediction service', 'scoring service', 'serving layer', 'model endpoint', 'deployment endpoint', 'ray', 'ray serve', 'torchserve', 'tensorflow serving', 'triton', 'vllm', 'seldon', 'bentoml'],
+  distributed:    ['distributed systems', 'high throughput', 'large-scale systems', 'stream processing', 'real-time pipeline', 'kafka', 'flink', 'spark', 'beam', 'mapreduce', 'pub/sub', 'kinesis', 'distributed queue', 'event-driven', 'message queue', 'streaming', 'backpressure', 'partitioning', 'sharding', 'replication', 'concurrency'],
+  applied_ml:     ['train models', 'model development', 'feature engineering', 'ml engineer', 'machine learning engineer', 'applied scientist', 'research engineer', 'research', 'model experimentation', 'offline evaluation', 'precision', 'recall', 'auc', 'f1', 'ranking model', 'classification model', 'fraud model', 'recommendation model', 'xgboost', 'lightgbm', 'catboost', 'scikit-learn', 'pytorch', 'tensorflow'],
+  frontend:       ['react', 'vue', 'ui', 'frontend', 'component library', 'design system', 'next.js', 'redux', 'zustand', 'pinia', 'tailwind', 'ant design', 'material ui', 'storybook', 'web app', 'dashboard', 'internal tools ui', 'operator console'],
+  agents:         ['langchain', 'langgraph', 'rag', 'agentic', 'llm agent', 'tool calling', 'tool/function calling', 'agent orchestration', 'agent-based', 'multi-agent', 'retrieval augmented generation', 'vector search', 'vector database', 'prompt engineering', 'openai', 'anthropic', 'gemini', 'llamaindex', 'pinecone', 'weaviate', 'faiss', 'milvus'],
+  backend:        ['go', 'golang', 'java', 'spring boot', 'python', 'node.js', 'rest api', 'grpc', 'rpc', 'microservices', 'service-oriented architecture', 'backend services', 'api design', 'distributed backend'],
+  data_storage:   ['mysql', 'postgresql', 'redis', 'cassandra', 'dynamodb', 'bigtable', 'elasticsearch', 'mongodb', 'data warehouse', 'hive', 'snowflake', 'bigquery', 'delta lake', 'iceberg', 'hbase', 'oltp', 'olap'],
+  cloud_infra:    ['aws', 'ec2', 'eks', 's3', 'emr', 'lambda', 'gcp', 'gke', 'azure', 'kubernetes', 'docker', 'containerization', 'terraform', 'helm', 'infrastructure as code', 'cloud infrastructure'],
+  observability:  ['opentelemetry', 'grafana', 'prometheus', 'datadog', 'monitoring', 'metrics', 'tracing', 'distributed tracing', 'logging', 'alerting', 'slo', 'sli', 'apm', 'incident response'],
+  cicd:           ['ci/cd', 'continuous integration', 'continuous deployment', 'github actions', 'jenkins', 'build pipeline', 'deployment pipeline', 'release pipeline', 'argocd', 'circleci', 'gitlab ci'],
+  experimentation:['a/b test', 'a/b testing', 'experimentation', 'online experiment', 'offline evaluation', 'model evaluation', 'canary', 'shadow testing', 'feature flag', 'holdout', 'lift', 'statistical significance'],
+  mlops:          ['mlops', 'ml platform', 'model registry', 'model versioning', 'pipeline orchestration', 'mlflow', 'kubeflow', 'sagemaker', 'feature registry', 'experiment tracking', 'model monitoring'],
+};
+
+/**
+ * Signal-to-phrase mapping — used by the deterministic fallback path in
+ * extractJdIntent when the LLM call fails twice. Produces prefer_patterns
+ * entries from fired signals (lower quality than LLM-generated narratives,
+ * but keeps the pipeline producing real intent).
+ */
+export const SIGNAL_TO_PHRASE = {
+  sdk: 'SDK / client library design',
+  platform: 'internal platform ownership',
+  feature_store: 'feature store / feature platform',
+  training_infra: 'distributed training infrastructure',
+  serving: 'model serving / inference platform',
+  distributed: 'distributed systems at scale',
+  applied_ml: 'ML modeling and training',
+  frontend: 'UI / design system work',
+  agents: 'LLM agent / RAG systems',
+  backend: 'backend services and APIs',
+  data_storage: 'data storage and warehousing',
+  cloud_infra: 'cloud infrastructure',
+  observability: 'observability and monitoring',
+  cicd: 'CI/CD and release infrastructure',
+  experimentation: 'experimentation and A/B testing',
+  mlops: 'MLOps and pipeline orchestration',
+};
+
+/**
+ * Detect which signals fire in a JD.
+ * @param {string} jdText
+ * @returns {Set<string>} names of fired signals from SIGNAL_TABLE
+ */
+export function deriveSignals(jdText) {
+  const lc = (jdText || '').toLowerCase();
+  const fired = new Set();
+  for (const [name, aliases] of Object.entries(SIGNAL_TABLE)) {
+    for (const alias of aliases) {
+      const re = new RegExp(`\\b${escapeRegex(alias)}\\b`);
+      if (re.test(lc)) {
+        fired.add(name);
+        break; // one alias is enough
+      }
+    }
+  }
+  return fired;
+}
+
+/**
+ * Build deprioritize_patterns from role_type + fired signals. Currently
+ * returns [] — rules-based deprioritize was disabled because it blocks
+ * bullets on narrative framing (e.g. "compliance theme") while ignoring
+ * the actual skill content inside (Airflow, Spark, distributed processing).
+ * The LLM picker reads bullet content + JD directly and makes better
+ * judgments without this layer. See spec §4.4.
+ *
+ * Reference rules (uncomment to activate for a specific role_type if the
+ * picker keeps off-target bullets for that archetype):
+ *
+ *   if (role_type === 'ml_platform') {
+ *     if (!firedSignals.has('applied_ml')) d.push('applied ML modeling', 'research-style ML work');
+ *     if (!firedSignals.has('frontend'))   d.push('pure frontend');
+ *   }
+ *   if (role_type === 'infra') {
+ *     if (!firedSignals.has('applied_ml')) d.push('applied ML modeling');
+ *     if (!firedSignals.has('agents'))     d.push('agent / LangChain prototypes');
+ *     if (!firedSignals.has('frontend'))   d.push('pure frontend');
+ *   }
+ *   if (role_type === 'backend') {
+ *     if (!firedSignals.has('applied_ml')) d.push('applied ML modeling');
+ *     if (!firedSignals.has('frontend'))   d.push('pure frontend');
+ *     if (!firedSignals.has('agents'))     d.push('agent / LangChain prototypes');
+ *   }
+ *   if (role_type === 'frontend') {
+ *     if (!firedSignals.has('distributed')) d.push('distributed systems work');
+ *     if (!firedSignals.has('applied_ml'))  d.push('applied ML modeling');
+ *   }
+ */
+export function deriveDeprioritize(role_type, firedSignals) {
+  void role_type; void firedSignals;
+  return [];
+}
