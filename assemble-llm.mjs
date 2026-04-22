@@ -22,10 +22,11 @@ export function defaultClient() {
 
 // ── Lenient parsing helpers ─────────────────────────────────────────
 
-const VALID_ARCHETYPES = ['frontend', 'backend', 'infra', 'machine_learning', 'ml_platform', 'fullstack'];
+const VALID_ARCHETYPES = ['frontend', 'backend', 'infra', 'machine_learning', 'ml_platform', 'applied_ai', 'fullstack'];
 
 const ARCHETYPE_ALIASES = {
   ml_platform:      ['ml platform', 'ml/ai platform', 'ml infra', 'mlops', 'ml infrastructure', 'ai platform', 'model serving', 'feature store', 'training platform', 'ml platform engineer'],
+  applied_ai:       ['applied ai', 'applied ai engineer', 'ai engineer', 'ai systems engineer', 'llm engineer', 'ai platform engineer', 'production ai', 'agent engineer', 'applied llm'],
   machine_learning: ['machine_learning', 'machine learning', 'machine-learning', 'ml/ai', 'ai/ml', 'ml engineer', 'ml engineering', 'applied ml', 'ml researcher', 'ai researcher'],
   frontend:         ['frontend', 'front-end', 'front end', 'ui engineer', 'client-side'],
   backend:          ['backend', 'back-end', 'back end', 'server-side'],
@@ -225,10 +226,10 @@ export async function classifyArchetype(jdText, client = defaultClient()) {
   const response = await client.messages.create({
     model: DEFAULT_MODEL,
     max_tokens: 50,
-    system: 'You are a strict classifier. Output EXACTLY one word from this list and NOTHING ELSE: frontend, backend, infra, machine_learning, fullstack. No explanation, no reasoning, no punctuation, no quotes, no markdown.',
+    system: 'You are a strict classifier. Output EXACTLY one word from this list and NOTHING ELSE: frontend, backend, infra, machine_learning, applied_ai, ml_platform, fullstack. No explanation, no reasoning, no punctuation, no quotes, no markdown.',
     messages: [{
       role: 'user',
-      content: `Classify this JD into exactly one of: frontend, backend, infra, machine_learning, fullstack.
+      content: `Classify this JD into exactly one of: frontend, backend, infra, machine_learning, applied_ai, ml_platform, fullstack.
 
 Output ONLY the single word. Do not explain.
 
