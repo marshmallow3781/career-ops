@@ -87,3 +87,26 @@ test('provenance: ATS rephrase within 0.85 ratio passes', () => {
     }
   );
 });
+
+test('provenance: missing source file → source_not_found error', () => {
+  const tailored = '- Some bullet <!-- src:nonexistent/backend.md#L5 -->';
+  const errors = checkBulletProvenance(tailored, '/tmp/no-such-dir-xyz123');
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].type, 'source_not_found');
+  assert.equal(errors[0].path, 'nonexistent/backend.md');
+});
+
+test('provenance: source file exists but has no ## Bullets section → fabricated_bullet', () => {
+  withTempSource(
+    (dir) => {
+      mkdirSync(join(dir, 'acme'), { recursive: true });
+      writeFileSync(join(dir, 'acme', 'backend.md'), '## Projects\n\n- only projects, no bullets\n');
+    },
+    (dir) => {
+      const tailored = '- Some bullet <!-- src:acme/backend.md#L1 -->';
+      const errors = checkBulletProvenance(tailored, dir);
+      assert.equal(errors.length, 1);
+      assert.equal(errors[0].type, 'fabricated_bullet');
+    }
+  );
+});

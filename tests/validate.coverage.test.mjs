@@ -24,3 +24,18 @@ test('coverage: extra company is not an error', () => {
   const errors = checkCompanyCoverage(tailored, required);
   assert.deepEqual(errors, []);
 });
+
+test('coverage: directory "meta" should NOT match "Metadata Corp" (slug regression)', () => {
+  const tailored = `### Metadata Corp — SF\n**Engineer** | 2023 → 2024\n`;
+  const required = ['meta'];
+  const errors = checkCompanyCoverage(tailored, required);
+  assert.equal(errors.length, 1, 'meta directory must require an actual meta header, not metadata');
+  assert.equal(errors[0].type, 'missing_company');
+});
+
+test('coverage: directory "acme" matches "Acme Corp" (acme-corp slug)', () => {
+  const tailored = `### Acme Corp — SF\n`;
+  const required = ['acme'];
+  const errors = checkCompanyCoverage(tailored, required);
+  assert.deepEqual(errors, []);
+});

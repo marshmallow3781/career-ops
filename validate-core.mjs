@@ -61,7 +61,7 @@ export function checkCompanyCoverage(markdown, required) {
   const present = new Set(extractCompanyHeaders(markdown));
   const errors = [];
   for (const company of required) {
-    const matched = [...present].some(p => p === company || p.startsWith(company + '-') || p.startsWith(company));
+    const matched = [...present].some(p => p === company || p.startsWith(company + '-'));
     if (!matched) {
       errors.push({
         type: 'missing_company',
@@ -160,8 +160,8 @@ export function checkBulletProvenance(markdown, sourcesRoot) {
  */
 export function checkChronologicalOrder(markdown, expected) {
   const found = extractCompanyHeaders(markdown);
-  const reduced = found.filter(c => expected.some(e => c === e || c.startsWith(e + '-') || c.startsWith(e)))
-    .map(c => expected.find(e => c === e || c.startsWith(e + '-') || c.startsWith(e)));
+  const reduced = found.filter(c => expected.some(e => c === e || c.startsWith(e + '-')))
+    .map(c => expected.find(e => c === e || c.startsWith(e + '-')));
   for (let i = 0; i < expected.length; i++) {
     if (reduced[i] !== expected[i]) {
       return [{

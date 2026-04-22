@@ -18,3 +18,13 @@ test('chronology: out-of-order detected', () => {
   assert.deepEqual(errors[0].found, ['globex', 'acme']);
   assert.deepEqual(errors[0].expected, ['acme', 'globex']);
 });
+
+test('chronology: directory "meta" should NOT match "Metadata Corp" header', () => {
+  const tailored = `### Metadata Corp — SF\n### Globex Inc — NYC\n`;
+  const expected = ['meta', 'globex'];
+  const errors = checkChronologicalOrder(tailored, expected);
+  // Since "meta" never appears, the reduced list is just ['globex'].
+  // expected[0] === 'meta', reduced[0] === 'globex', so violation.
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].type, 'chronology_violation');
+});
