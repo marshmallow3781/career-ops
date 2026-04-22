@@ -69,3 +69,36 @@ location:
   visa_status: "No sponsorship needed"
   # For remote roles outside your country:
   # onsite_availability: "1 week/month in any city"
+
+# ── Experience-Source Assembly (this fork) ──────────────────────────
+
+experience_sources:
+  root: experience_source
+  archetypes:
+    frontend: frontend.md
+    backend: backend.md
+    infra: infra.md
+    machine_learning: machine_learning.md
+  jd_archetype_sources:
+    frontend:         [frontend]
+    backend:          [backend]
+    infra:            [infra]
+    machine_learning: [machine_learning]
+    fullstack:        [frontend, backend]
+  overrides:
+    # Example: force a current employer to never appear as stub
+    # acme:
+    #   tier_floor: full
+    #   stub: "Shipped production systems on a high-traffic AI platform."
+
+archetype_defaults:
+  frontend:         { top_bullets_full: 4, top_projects: 3 }
+  backend:          { top_bullets_full: 5, top_projects: 4 }
+  infra:            { top_bullets_full: 4, top_projects: 3 }
+  machine_learning: { top_bullets_full: 5, top_projects: 4 }
+  fullstack:        { top_bullets_full: 5, top_projects: 4 }
+
+tier_rules:
+  light_bullets: 2
+
+prefer_latex: false

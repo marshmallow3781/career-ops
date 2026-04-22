@@ -1,5 +1,8 @@
 # Personal data (user fills these)
 cv.md
+cv.tailored.md
+.cv-tailored-meta.json
+.cv-tailored-errors.json
 data/applications.md
 data/pipeline.md
 data/scan-history.tsv

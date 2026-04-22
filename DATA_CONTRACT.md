@@ -8,10 +8,10 @@ These files contain your personal data, customizations, and work product. Update
 
 | File | Purpose |
 |------|---------|
-| `cv.md` | Your CV in markdown |
+| `experience_source/*` | Per-company × per-facet structured experience source files |
 | `config/profile.yml` | Your identity, targets, comp range |
 | `modes/_profile.md` | Your archetypes, narrative, negotiation scripts |
-| `article-digest.md` | Your proof points from portfolio |
+| `article-digest.md` | Non-company proof points (open-source, blog posts, talks, side projects) |
 | `interview-prep/story-bank.md` | Your accumulated STAR+R stories |
 | `portals.yml` | Your customized company list |
 | `data/applications.md` | Your application tracker |
@@ -48,6 +48,14 @@ These files contain system logic, scripts, templates, and instructions that impr
 | `CLAUDE.md` | Agent instructions |
 | `AGENTS.md` | Codex instructions |
 | `*.mjs` | Utility scripts |
+| `assemble-cv.mjs` | Tailored CV assembler |
+| `assemble-core.mjs` | Pure functions for assembly (parse, score, tier, render) |
+| `assemble-llm.mjs` | LLM-facing functions used by assembler |
+| `validate-cv.mjs` | Structural validator |
+| `validate-core.mjs` | Validation check functions |
+| `tests/*` | Unit + E2E test files |
+| `__fixtures__/*` | Test fixtures (synthetic experience_source + profile + JDs) |
+| `config/synonyms.yml` | Keyword scoring synonyms |
 | `batch/batch-prompt.md` | Batch worker prompt |
 | `batch/batch-runner.sh` | Batch orchestrator |
 | `dashboard/*` | Go TUI dashboard |
@@ -63,3 +71,10 @@ These files contain system logic, scripts, templates, and instructions that impr
 **If a file is in the User Layer, no update process may read, modify, or delete it.**
 
 **If a file is in the System Layer, it can be safely replaced with the latest version from the upstream repo.**
+
+## Note on cv.md (removed)
+
+This fork removes `cv.md` as a hand-edited file. All CV content lives in
+`experience_source/{company}/{facet}.md`. A per-JD `cv.tailored.md` is
+produced by `assemble-cv.mjs --jd=<path>` and consumed by every mode that
+has a JD in context. `cv.tailored.md` is gitignored.

@@ -1,0 +1,33 @@
+# Synonyms for keyword scoring in assemble-cv.mjs
+# Format: each entry maps a canonical term to a list of equivalent surface forms.
+# Matching is case-insensitive, whole-word.
+
+groups:
+  - canonical: rag
+    aliases: [rag pipeline, rag pipelines, retrieval-augmented generation, retrieval augmented generation, retrieval over embeddings]
+  - canonical: llm
+    aliases: [llms, large language model, large language models, foundation model, foundation models]
+  - canonical: vector_db
+    aliases: [vector database, vector store, embeddings store, semantic search index, pinecone, weaviate, qdrant, chroma]
+  - canonical: mlops
+    aliases: [ml ops, ml-ops, ml platform, ml infra, ml infrastructure, model ops]
+  - canonical: feature_store
+    aliases: [feature store, feature platform, online feature serving]
+  - canonical: kubernetes
+    aliases: [k8s, kube]
+  - canonical: ci_cd
+    aliases: [ci/cd, ci cd, continuous integration, continuous delivery, continuous deployment]
+  - canonical: react
+    aliases: [react.js, reactjs]
+  - canonical: nextjs
+    aliases: [next.js, next js]
+  - canonical: typescript
+    aliases: [ts]
+  - canonical: postgres
+    aliases: [postgresql, pg]
+  - canonical: observability
+    aliases: [monitoring, metrics, traces, logging, telemetry]
+  - canonical: distributed_systems
+    aliases: [distributed system, distributed compute, distributed training]
+  - canonical: design_system
+    aliases: [design systems, component library, ui library]
