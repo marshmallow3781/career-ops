@@ -206,3 +206,20 @@ export function scoreBullet(bulletText, keywords) {
 function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
+
+/**
+ * Decide the rendering tier for a company based on candidate pool size and per-company floor.
+ * @param {number} poolSize
+ * @param {'full'|'light'|'stub'|null} floor
+ * @returns {'full'|'light'|'stub'}
+ */
+export function assignTier(poolSize, floor) {
+  let natural;
+  if (poolSize >= 3) natural = 'full';
+  else if (poolSize >= 1) natural = 'light';
+  else natural = 'stub';
+
+  if (!floor) return natural;
+  const order = { stub: 0, light: 1, full: 2 };
+  return order[natural] >= order[floor] ? natural : floor;
+}
