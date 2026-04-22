@@ -1,6 +1,27 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { deriveSignals, deriveDeprioritize, SIGNAL_TABLE, SIGNAL_TO_PHRASE } from '../assemble-core.mjs';
+import { extractJdIntent } from '../assemble-llm.mjs';
+
+function mockClient(responses) {
+  let callIndex = 0;
+  return {
+    messages: {
+      create: async () => {
+        if (callIndex >= responses.length) {
+          throw new Error(`mockClient: no response queued for call #${callIndex}`);
+        }
+        const resp = responses[callIndex++];
+        if (resp instanceof Error) throw resp;
+        return resp;
+      },
+    },
+  };
+}
+
+function textResp(text) {
+  return { content: [{ type: 'text', text }] };
+}
 
 test('deriveSignals: returns a Set', () => {
   const signals = deriveSignals('Build an SDK for our platform');
@@ -73,4 +94,70 @@ test('SIGNAL_TABLE and SIGNAL_TO_PHRASE cover the same 16 signals', () => {
 test('deriveDeprioritize: returns empty array (rules intentionally disabled)', () => {
   assert.deepEqual(deriveDeprioritize('ml_platform', new Set(['sdk', 'platform'])), []);
   assert.deepEqual(deriveDeprioritize('backend', new Set()), []);
+});
+
+test('extractJdIntent: first-attempt success → _source = "llm"', async () => {
+  const client = mockClient([
+    textResp(JSON.stringify({
+      primary_focus: 'Build platform tooling for ML teams',
+      prefer_patterns: [
+        'Backend / platform engineer with SDK design chops',
+        'Distributed systems generalist with ML-platform adjacency',
+        'ML infra engineer comfortable with training and serving',
+      ],
+    })),
+  ]);
+  const result = await extractJdIntent('JD mentions SDK and platform', client);
+  assert.equal(result._source, 'llm');
+  assert.equal(result.primary_focus, 'Build platform tooling for ML teams');
+  assert.equal(result.prefer_patterns.length, 3);
+  assert.deepEqual(result.deprioritize_patterns, []);
+});
+
+test('extractJdIntent: garbage then valid → _source = "llm-retry"', async () => {
+  const client = mockClient([
+    textResp('I think the role is... let me explain. This is not JSON.'),
+    textResp(JSON.stringify({
+      primary_focus: 'Build platform tooling',
+      prefer_patterns: ['A', 'B', 'C'],
+    })),
+  ]);
+  const result = await extractJdIntent('JD text', client);
+  assert.equal(result._source, 'llm-retry');
+  assert.equal(result.prefer_patterns.length, 3);
+});
+
+test('extractJdIntent: two garbage → _source = "deterministic-fallback" with signal-derived prefer_patterns', async () => {
+  const client = mockClient([
+    textResp('not json 1'),
+    textResp('not json 2'),
+  ]);
+  const jd = 'Build an SDK for our ML platform with distributed training and model serving on Ray';
+  const result = await extractJdIntent(jd, client);
+  assert.equal(result._source, 'deterministic-fallback');
+  assert.ok(result.prefer_patterns.length > 0, 'fallback must produce non-empty prefer_patterns');
+  assert.ok(result.primary_focus.length > 0, 'fallback must produce non-empty primary_focus');
+  const hasSignalPhrase = result.prefer_patterns.some(p =>
+    p.includes('SDK') || p.includes('platform') || p.includes('training') || p.includes('serving') || p.includes('distributed')
+  );
+  assert.ok(hasSignalPhrase, `fallback prefer_patterns should include signal-derived phrases; got: ${JSON.stringify(result.prefer_patterns)}`);
+});
+
+test('extractJdIntent: thrown client error on first attempt still triggers retry then fallback', async () => {
+  const client = mockClient([
+    new Error('Network error'),
+    new Error('Second network error'),
+  ]);
+  const result = await extractJdIntent('Build SDK for platform', client);
+  assert.equal(result._source, 'deterministic-fallback');
+});
+
+test('extractJdIntent: no signals fired → fallback still returns non-empty prefer_patterns', async () => {
+  const client = mockClient([
+    textResp('garbage'),
+    textResp('also garbage'),
+  ]);
+  const result = await extractJdIntent('A generic JD with no matching keywords', client);
+  assert.equal(result._source, 'deterministic-fallback');
+  assert.ok(result.prefer_patterns.length >= 1, 'fallback must not produce empty prefer_patterns even when no signals fire');
 });

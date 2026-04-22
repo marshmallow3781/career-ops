@@ -12,6 +12,7 @@
  */
 
 import { Anthropic } from '@anthropic-ai/sdk';
+import { deriveSignals, SIGNAL_TO_PHRASE } from './assemble-core.mjs';
 
 const DEFAULT_MODEL = process.env.LLM_MODEL || process.env.ASSEMBLE_MODEL || 'claude-haiku-4-5-20251001';
 
@@ -105,56 +106,118 @@ function extractJson(text) {
 // ── LLM-facing functions ────────────────────────────────────────────
 
 /**
- * Extract structured role intent from a JD — what KIND of engineer the team is
- * actually looking for, beyond keyword matching. The result guides pickBullets
- * toward bullets that match the role's true nature (platform vs applied,
- * modeling vs infra, etc.).
+ * Extract structured role intent from a JD. Returns engineer-archetype
+ * narratives in prefer_patterns (e.g. "Backend engineer with ML-platform
+ * adjacency"), not topic tags.
  *
- * @returns {Promise<{role_type, primary_focus, prefer_patterns, deprioritize_patterns}>}
+ * Hardened with retry + deterministic fallback:
+ *   1. First LLM attempt with the standard prompt.
+ *   2. On parse failure OR thrown error, retry once with a stricter
+ *      JSON-only reprompt.
+ *   3. On second failure, synthesize prefer_patterns from fired signals
+ *      (never silently returns empty).
+ *
+ * The `_source` field records which path produced the result
+ * ("llm" | "llm-retry" | "deterministic-fallback") and is logged in
+ * .cv-tailored-meta.json for debuggability.
+ *
+ * @returns {Promise<{primary_focus, prefer_patterns, deprioritize_patterns, _source}>}
  */
 export async function extractJdIntent(jdText, client = defaultClient()) {
-  const response = await client.messages.create({
-    model: DEFAULT_MODEL,
-    max_tokens: 600,
-    system: 'You analyze job descriptions to extract the role\'s true nature. Output a single valid JSON object and nothing else. No prose, no markdown fences.',
-    messages: [{
-      role: 'user',
-      content: `Analyze this JD and extract its TRUE nature. Distinguish role TYPE carefully:
+  const firedSignals = deriveSignals(jdText);
+  const firedList = [...firedSignals].join(', ') || '(none detected)';
 
-- "backend" — building APIs, services, distributed systems (product-side)
-- "ml_platform" — building infra/SDKs/tooling for ML teams (NOT building models)
-- "machine_learning" — building ML models, training them, applied ML
-- "infra" — platform engineering / devops / SRE / data platform
-- "frontend" — UI, web, design systems
-- "fullstack" — balanced FE+BE product engineering
+  const basePrompt = `Given this JD, describe the engineer archetype the team is actually hunting for.
 
-Output EXACTLY this JSON:
+Output EXACTLY this JSON, no prose, no markdown fences:
+
 {
-  "role_type": "<one of the above>",
-  "primary_focus": "<one short sentence: what they actually want>",
-  "prefer_patterns": ["<type of work to emphasize>", "..."],
-  "deprioritize_patterns": ["<type of work to hide/minimize>", "..."]
+  "primary_focus": "<one sentence: what they actually want>",
+  "prefer_patterns": [
+    "<engineer archetype description #1>",
+    "<engineer archetype description #2>",
+    "<engineer archetype description #3>"
+  ]
 }
 
-Examples of prefer_patterns: "distributed systems at scale", "SDK design", "internal tooling used by other teams", "model serving infrastructure", "feature store ownership", "real-time pipelines"
-Examples of deprioritize_patterns: "frontend / UI", "applied ML model development", "agent / LangChain work", "privacy / compliance framing", "research publications"
+Each prefer_patterns entry describes a WHOLE engineer profile in one phrase —
+not a topic tag. Three entries, no more, no less.
+
+Good examples:
+- "Backend / Infra engineer with strong ML-platform adjacency"
+- "Platform-minded engineer who has built data pipelines, experimentation, and production systems for intelligent decisioning"
+- "ML infrastructure engineer focused on distributed training and serving at scale"
+
+Bad examples (do NOT emit — too narrow):
+- "SDK design"
+- "Kubernetes"
+- "Python experience"
+
+FIRED SIGNALS: ${firedList}
 
 JD:
-${jdText.slice(0, 4000)}`,
-    }],
-  });
-  const raw = extractResponseText(response);
-  const parsed = extractJson(raw);
-  if (!parsed) {
-    // Soft failure — return a permissive default so assembly can proceed
-    console.error('[extractJdIntent] could not parse response, using permissive default');
-    return { role_type: 'unknown', primary_focus: '', prefer_patterns: [], deprioritize_patterns: [] };
+${jdText.slice(0, 4000)}`;
+
+  // Attempt 1
+  try {
+    const response = await client.messages.create({
+      model: DEFAULT_MODEL,
+      max_tokens: 600,
+      system: 'You analyze job descriptions to extract the role\'s true nature. Output a single valid JSON object and nothing else. No prose, no markdown fences.',
+      messages: [{ role: 'user', content: basePrompt }],
+    });
+    const raw = extractResponseText(response);
+    const parsed = extractJson(raw);
+    if (parsed && parsed.primary_focus && Array.isArray(parsed.prefer_patterns) && parsed.prefer_patterns.length > 0) {
+      return {
+        primary_focus: parsed.primary_focus,
+        prefer_patterns: parsed.prefer_patterns,
+        deprioritize_patterns: [],
+        _source: 'llm',
+      };
+    }
+    console.error('[extractJdIntent] parse failure, retrying with strict reprompt');
+  } catch (err) {
+    console.error(`[extractJdIntent] first attempt threw: ${err.message}; retrying`);
   }
+
+  // Attempt 2 (strict reprompt)
+  try {
+    const response = await client.messages.create({
+      model: DEFAULT_MODEL,
+      max_tokens: 600,
+      system: 'You analyze job descriptions. Output ONLY a single valid JSON object. No markdown. No prose. No explanation.',
+      messages: [{
+        role: 'user',
+        content: basePrompt + '\n\nYour previous response did not parse as JSON. Output ONLY the JSON object. No markdown, no prose, no explanation.',
+      }],
+    });
+    const raw = extractResponseText(response);
+    const parsed = extractJson(raw);
+    if (parsed && parsed.primary_focus && Array.isArray(parsed.prefer_patterns) && parsed.prefer_patterns.length > 0) {
+      return {
+        primary_focus: parsed.primary_focus,
+        prefer_patterns: parsed.prefer_patterns,
+        deprioritize_patterns: [],
+        _source: 'llm-retry',
+      };
+    }
+  } catch (err) {
+    console.error(`[extractJdIntent] retry threw: ${err.message}`);
+  }
+
+  // Deterministic fallback
+  console.error('[extractJdIntent] LLM failed twice, using deterministic fallback');
+  const phrases = [...firedSignals].map(s => SIGNAL_TO_PHRASE[s]).filter(Boolean);
+  const preferPatterns = phrases.length > 0 ? phrases : ['general software engineering work'];
+  const primary = phrases.length > 0
+    ? `Role focused on ${phrases.slice(0, 2).join(' and ')}`
+    : 'General software engineering role';
   return {
-    role_type: parsed.role_type || 'unknown',
-    primary_focus: parsed.primary_focus || '',
-    prefer_patterns: Array.isArray(parsed.prefer_patterns) ? parsed.prefer_patterns : [],
-    deprioritize_patterns: Array.isArray(parsed.deprioritize_patterns) ? parsed.deprioritize_patterns : [],
+    primary_focus: primary,
+    prefer_patterns: preferPatterns,
+    deprioritize_patterns: [],
+    _source: 'deterministic-fallback',
   };
 }
 
