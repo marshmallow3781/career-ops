@@ -223,3 +223,65 @@ export function assignTier(poolSize, floor) {
   const order = { stub: 0, light: 1, full: 2 };
   return order[natural] >= order[floor] ? natural : floor;
 }
+
+/**
+ * Render the final cv.tailored.md markdown.
+ * @param {object} args
+ * @param {object} args.profile — config/profile.yml content
+ * @param {Array} args.companies — [{dir, frontmatter, tier, bullets?, stub?}, ...] in render order
+ * @param {Array} args.projects — selected projects with sourcePath, sourceLine
+ * @param {string[]} args.competencies — Core Competency phrases
+ * @param {string} args.summary — Professional Summary text
+ * @returns {string} markdown
+ */
+export function renderTailored({ profile, companies, projects, competencies, summary }) {
+  const c = profile.candidate || {};
+  const lines = [];
+  lines.push(`# ${c.full_name || 'Candidate'}`);
+  lines.push('');
+  const contact = [c.location, c.email, c.linkedin, c.portfolio_url].filter(Boolean).join(' · ');
+  if (contact) lines.push(`*${contact}*`);
+  lines.push('');
+
+  lines.push('## Professional Summary');
+  lines.push('');
+  lines.push(summary);
+  lines.push('');
+
+  if (competencies?.length) {
+    lines.push('## Core Competencies');
+    lines.push('');
+    lines.push(competencies.join(' · '));
+    lines.push('');
+  }
+
+  lines.push('## Work Experience');
+  lines.push('');
+  for (const co of companies) {
+    const fm = co.frontmatter;
+    lines.push(`### ${fm.company} — ${fm.location}`);
+    lines.push(`**${fm.role}** | ${fm.start} → ${fm.end}`);
+    lines.push('');
+    if (co.tier === 'stub') {
+      lines.push(`- ${co.stub}`);
+    } else {
+      for (const b of co.bullets || []) {
+        const marker = b.sourcePath ? ` <!-- src:${b.sourcePath}#L${b.sourceLine || 0} -->` : '';
+        lines.push(`- ${b.text}${marker}`);
+      }
+    }
+    lines.push('');
+  }
+
+  if (projects?.length) {
+    lines.push('## Projects');
+    lines.push('');
+    for (const p of projects) {
+      const marker = p.sourcePath ? ` <!-- src:${p.sourcePath}#L${p.sourceLine || 0} -->` : '';
+      lines.push(`- ${p.text}${marker}`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
