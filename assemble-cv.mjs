@@ -12,7 +12,7 @@
 
 import 'dotenv/config';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { resolve, dirname, join } from 'node:path';
+import { resolve, dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   loadConfig, loadAllSources, validateConsistency, sortCompanies,
@@ -105,7 +105,7 @@ async function main() {
     const skillsBonusesForCompany = {};
     for (const f of facetFiles) {
       const skillsBonus = computeSkillsBonus(f.skills, keywords);
-      const facetFileName = f._sourcePath.split('/').pop();
+      const facetFileName = basename(f._sourcePath);
       skillsBonusesForCompany[facetFileName] = skillsBonus;
       for (const b of f.bullets) {
         const baseScore = scoreBullet(b.text, keywords);
