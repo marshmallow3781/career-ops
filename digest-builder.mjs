@@ -42,7 +42,7 @@ const APIFY_NEW_GLOB = 'apify-new-';
 const APIFY_ARCHIVE_DIR = join(DATA_DIR, 'apify-new-archive');
 const PIPELINE_PATH = join(DATA_DIR, 'pipeline.md');
 
-const HAIKU_MODEL = process.env.ASSEMBLE_MODEL || 'claude-haiku-4-5-20251001';
+const HAIKU_MODEL = process.env.LLM_MODEL || process.env.ASSEMBLE_MODEL || 'claude-haiku-4-5-20251001';
 
 /**
  * Apply 3-part title filter: positive-match AND !negative-match AND !deal-breaker.

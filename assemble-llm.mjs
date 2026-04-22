@@ -9,7 +9,7 @@
 
 import { Anthropic } from '@anthropic-ai/sdk';
 
-const DEFAULT_MODEL = process.env.ASSEMBLE_MODEL || 'claude-haiku-4-5-20251001';
+const DEFAULT_MODEL = process.env.LLM_MODEL || process.env.ASSEMBLE_MODEL || 'claude-haiku-4-5-20251001';
 
 export function defaultClient() {
   return new Anthropic();
