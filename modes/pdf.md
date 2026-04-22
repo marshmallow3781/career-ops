@@ -1,25 +1,19 @@
 # Modo: pdf — Generación de PDF ATS-Optimizado
 
-## Pipeline completo
+## Pipeline (this fork)
 
-1. Lee `cv.md` como fuentes de verdad
-2. Pide al usuario el JD si no está en contexto (texto o URL)
-3. Extrae 15-20 keywords del JD
-4. Detecta idioma del JD → idioma del CV (EN default)
-5. Detecta ubicación empresa → formato papel:
-   - US/Canada → `letter`
-   - Resto del mundo → `a4`
-6. Detecta arquetipo del rol → adapta framing
-7. Reescribe Professional Summary inyectando keywords del JD + exit narrative bridge ("Built and sold a business. Now applying systems thinking to [domain del JD].")
-8. Selecciona top 3-4 proyectos más relevantes para la oferta
-9. Reordena bullets de experiencia por relevancia al JD
-10. Construye competency grid desde requisitos del JD (6-8 keyword phrases)
-11. Inyecta keywords naturalmente en logros existentes (NUNCA inventa)
-12. Genera HTML completo desde template + contenido personalizado
-13. Lee `name` de `config/profile.yml` → normaliza a kebab-case lowercase (e.g. "John Doe" → "john-doe") → `{candidate}`
-14. Escribe HTML a `/tmp/cv-{candidate}-{company}.html`
-15. Ejecuta: `node generate-pdf.mjs /tmp/cv-{candidate}-{company}.html output/cv-{candidate}-{company}-{YYYY-MM-DD}.pdf --format={letter|a4}`
-15. Reporta: ruta del PDF, nº páginas, % cobertura de keywords
+1. If JD not provided in plain text, extract via MCP-Playwright (Paso 0 of auto-pipeline).
+2. Save JD to `jds/{company-slug}.md`.
+3. Run: `node assemble-cv.mjs --jd=jds/{company-slug}.md`
+4. Run: `node validate-cv.mjs cv.tailored.md`
+   - On failure: read `.cv-tailored-errors.json`, re-invoke `assemble-cv.mjs --jd=... --feedback=.cv-tailored-errors.json` (≤3 retries). If all 3 fail, abort with error.
+5. Read `cv.tailored.md` and fill placeholders in `templates/cv-template.html`.
+6. Detect paper format from JD location: US/Canada → `letter`, else `a4`.
+7. Read `name` from `config/profile.yml` → kebab-case → `{candidate}`.
+8. Write HTML to `/tmp/cv-{candidate}-{company}.html`.
+9. Run: `node generate-pdf.mjs /tmp/cv-{candidate}-{company}.html output/cv-{candidate}-{company}-{YYYY-MM-DD}.pdf --format={letter|a4}`
+10. Archive: `cp cv.tailored.md output/cv-tailored-{company}-{YYYY-MM-DD}.md`
+11. Report: PDF path, page count, archetype detected, tier breakdown per company (from `.cv-tailored-meta.json`).
 
 ## Reglas ATS (parseo limpio)
 
@@ -114,7 +108,7 @@ a. `get-design-content` on the new design → returns all text elements (richtex
 b. Map text elements to CV sections by content matching:
    - Look for the candidate's name → header section
    - Look for "Summary" or "Professional Summary" → summary section
-   - Look for company names from cv.md → experience sections
+   - Look for company names from cv.tailored.md → experience sections
    - Look for degree/school names → education section
    - Look for skill keywords → skills section
 c. If mapping fails, show the user what was found and ask for guidance

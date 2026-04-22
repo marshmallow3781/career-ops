@@ -1,5 +1,9 @@
 # Modo: contacto -- LinkedIn Power Move
 
+> **Precondition (this fork):** Requires a JD or target role URL in context.
+> If absent, abort with: "I need a JD or target role URL before drafting outreach."
+> Reads `cv.tailored.md` (run `node assemble-cv.mjs --jd=...` first).
+
 1. **Identificar targets** via WebSearch:
    - Hiring manager del equipo
    - Recruiter asignado

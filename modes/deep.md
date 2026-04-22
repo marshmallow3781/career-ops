@@ -1,5 +1,9 @@
 # Modo: deep — Deep Research Prompt
 
+> **Precondition (this fork):** Requires a JD or target role URL in context.
+> If absent, abort with: "I need a JD or target role URL before deep research."
+> Reads `cv.tailored.md` (run `node assemble-cv.mjs --jd=...` first).
+
 Genera un prompt estructurado para Perplexity/Claude/ChatGPT con 6 ejes:
 
 ```
@@ -38,7 +42,7 @@ Contexto: Estoy evaluando una candidatura para [rol] en [empresa]. Necesito info
 - ¿Cómo se posicionan vs competencia?
 
 ### 6. Ángulo del candidato
-Dado mi perfil (read from cv.md and profile.yml for specific experience):
+Dado mi perfil (read from cv.tailored.md and profile.yml for specific experience):
 - ¿Qué valor único aporto a este equipo?
 - ¿Qué proyectos míos son más relevantes?
 - ¿Qué historia debería contar en la entrevista?

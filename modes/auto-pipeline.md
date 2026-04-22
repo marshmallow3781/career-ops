@@ -16,15 +16,37 @@ Si el input es una **URL** (no texto de JD pegado), seguir esta estrategia para 
 
 **Si el input es texto de JD** (no URL): usar directamente, sin necesidad de fetch.
 
+## Paso 0.5 — Assemble Tailored CV
+
+Save JD to `jds/{company-slug}.md`. Then run:
+
+```
+node assemble-cv.mjs --jd=jds/{company-slug}.md
+```
+
+This produces `cv.tailored.md` and `.cv-tailored-meta.json`. Every subsequent
+mode that needs the candidate's CV will read `cv.tailored.md` (NOT `cv.md` —
+this fork removed that file).
+
+## Paso 0.6 — Validate
+
+```
+node validate-cv.mjs cv.tailored.md
+```
+
+If validation fails: read `.cv-tailored-errors.json`, re-run assemble with
+`--feedback=.cv-tailored-errors.json` (max 3 retries). If still failing,
+abort the pipeline and surface the error JSON for manual inspection.
+
 ## Paso 1 — Evaluación A-G
-Ejecutar exactamente igual que el modo `oferta` (leer `modes/oferta.md` para todos los bloques A-F + Block G Posting Legitimacy).
+Ejecutar exactamente igual que el modo `oferta` (leer `modes/oferta.md` para todos los bloques A-F + Block G Posting Legitimacy). **El modo oferta lee `cv.tailored.md`** (no `cv.md`).
 
 ## Paso 2 — Guardar Report .md
 Guardar la evaluación completa en `reports/{###}-{company-slug}-{YYYY-MM-DD}.md` (ver formato en `modes/oferta.md`).
 Include Block G in the saved report. Add `**Legitimacy:** {tier}` to the report header.
 
 ## Paso 3 — Generar PDF
-Ejecutar el pipeline completo de `pdf` (leer `modes/pdf.md`).
+Ejecutar el pipeline de `pdf` (leer `modes/pdf.md`). Si `config/profile.yml` tiene `prefer_latex: true`, ejecutar también `modes/latex.md`.
 
 ## Paso 4 — Draft Application Answers (solo si score >= 4.5)
 
@@ -65,4 +87,10 @@ Si el score final es >= 4.5, generar borrador de respuestas para el formulario d
 ## Paso 5 — Actualizar Tracker
 Registrar en `data/applications.md` con todas las columnas incluyendo Report y PDF en ✅.
 
-**Si algún paso falla**, continuar con los siguientes y marcar el paso fallido como pendiente en el tracker.
+## Paso 6 — Archive
+
+Move `cv.tailored.md` → `output/cv-tailored-{company-slug}-{YYYY-MM-DD}.md`
+so each application has its own archived view of the CV that was actually
+generated.
+
+**Si algún paso falla**, continuar con los siguientes y marcar el paso fallido como pendiente en el tracker. Si el paso fallido es Paso 0.5 o 0.6 (assemble/validate), abort el pipeline — sin `cv.tailored.md` válido los pasos siguientes no pueden ejecutarse.

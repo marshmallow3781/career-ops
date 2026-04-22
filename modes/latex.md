@@ -2,22 +2,17 @@
 
 Export a tailored, ATS-optimized CV as a `.tex` file and compile it to PDF via `pdflatex`.
 
-## Pipeline
+## Pipeline (this fork)
 
-1. Read `cv.md` as source of truth
-2. Read `config/profile.yml` for candidate identity and contact info
-3. Ask the user for the JD if not already in context (text or URL)
-4. Extract 15-20 keywords from the JD
-5. Detect JD language → CV language (EN default)
-6. Detect role archetype → adapt framing
-7. Rewrite Professional Summary injecting JD keywords (same rules as `pdf` mode — NEVER invent skills)
-8. Select top 3-4 most relevant projects for the offer
-9. Reorder experience bullets by JD relevance
-10. Inject keywords naturally into existing achievements
-11. Generate the `.tex` file using `templates/cv-template.tex`
-12. Write to `output/cv-{candidate}-{company}-{YYYY-MM-DD}.tex`
-13. Run: `node generate-latex.mjs output/cv-{candidate}-{company}-{YYYY-MM-DD}.tex output/cv-{candidate}-{company}-{YYYY-MM-DD}.pdf`
-14. Report: .tex path, .pdf path, file sizes, section count, keyword coverage %
+1. If JD not in context, follow Paso 0 of auto-pipeline.
+2. Save JD to `jds/{slug}.md`.
+3. Run: `node assemble-cv.mjs --jd=jds/{slug}.md`
+4. Run: `node validate-cv.mjs cv.tailored.md` (≤3 retries with `--feedback=.cv-tailored-errors.json` on failure).
+5. Read `cv.tailored.md` and `config/profile.yml`. Fill `templates/cv-template.tex` placeholders.
+6. Write to `/tmp/cv-{candidate}-{company}-{YYYY-MM-DD}.tex`.
+7. Run: `node generate-latex.mjs /tmp/cv-{candidate}-{company}-{YYYY-MM-DD}.tex output/cv-{candidate}-{company}-{YYYY-MM-DD}.pdf`
+8. Archive: `cp cv.tailored.md output/cv-tailored-{company}-{YYYY-MM-DD}.md`
+9. Report: .tex path, .pdf path, file sizes, section count, keyword coverage %.
 
 **Requires:** `pdflatex` on PATH (MiKTeX or TeX Live). First compilation may auto-install missing LaTeX packages via MiKTeX.
 
@@ -35,10 +30,10 @@ The template at `templates/cv-template.tex` uses `{{PLACEHOLDER}}` syntax:
 | `{{LINKEDIN_DISPLAY}}` | Display text only (no scheme): `linkedin.com/in/username` |
 | `{{GITHUB_URL}}` | Full URL with scheme for `\href{}`: e.g. `https://github.com/username`. If `profile.yml` stores a bare host+path, prepend `https://`. |
 | `{{GITHUB_DISPLAY}}` | Display text only (no scheme): `github.com/username` |
-| `{{EDUCATION}}` | LaTeX `\resumeSubheading` blocks from cv.md Education section |
+| `{{EDUCATION}}` | LaTeX `\resumeSubheading` blocks from `config/profile.yml` (or `cv.tailored.md` Education section if present) |
 | `{{EXPERIENCE}}` | LaTeX `\resumeSubheading` + `\resumeItem` blocks — reordered bullets |
 | `{{PROJECTS}}` | LaTeX `\resumeProjectHeading` + `\resumeItem` blocks — top 3-4 selected |
-| `{{SKILLS}}` | LaTeX `\textbf{Category}{: items}` lines from cv.md Technical Skills |
+| `{{SKILLS}}` | LaTeX `\textbf{Category}{: items}` lines from `cv.tailored.md` Core Competencies |
 
 ## LaTeX Content Generation Rules
 

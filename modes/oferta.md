@@ -1,5 +1,9 @@
 # Modo: oferta — Evaluación Completa A-G
 
+> **Precondition (this fork):** This mode requires `cv.tailored.md` to exist.
+> Run `node assemble-cv.mjs --jd=<jd-path>` first. The auto-pipeline mode does
+> this automatically at Paso 0.5.
+
 Cuando el candidato pega una oferta (texto o URL), entregar SIEMPRE los 7 bloques (A-F evaluation + G legitimacy):
 
 ## Paso 0 — Detección de Arquetipo
@@ -22,7 +26,11 @@ Tabla con:
 
 ## Bloque B — Match con CV
 
-Lee `cv.md`. Crea tabla con cada requisito del JD mapeado a líneas exactas del CV.
+Lee `cv.tailored.md`. Crea tabla con cada requisito del JD mapeado a líneas exactas del CV.
+
+**Tier breakdown:** Read `.cv-tailored-meta.json` and include in Block B a
+table or bullet list showing each company's tier (full / light / stub) and
+candidate pool size. This makes the score's basis transparent.
 
 **Adaptado al arquetipo:**
 - Si FDE → priorizar proof points de delivery rápida y client-facing
