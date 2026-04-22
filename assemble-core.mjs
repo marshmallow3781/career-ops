@@ -262,10 +262,14 @@ export function renderTailored({ profile, companies, projects, competencies, sum
     lines.push(`### ${fm.company} — ${fm.location}`);
     lines.push(`**${fm.role}** | ${fm.start} → ${fm.end}`);
     lines.push('');
-    if (co.tier === 'stub') {
-      lines.push(`- ${co.stub}`);
+    const noBullets = !co.bullets || co.bullets.length === 0;
+    if (co.tier === 'stub' || noBullets) {
+      // Stub fallback: applies to explicit stub tier AND to non-stub tiers where
+      // the candidate pool was empty (e.g. tier_floor=light promoted an empty pool).
+      const stubText = co.stub || `Worked at ${fm.company} as ${fm.role}.`;
+      lines.push(`- ${stubText} <!-- src:_stub -->`);
     } else {
-      for (const b of co.bullets || []) {
+      for (const b of co.bullets) {
         const marker = b.sourcePath ? ` <!-- src:${b.sourcePath}#L${b.sourceLine || 0} -->` : '';
         lines.push(`- ${b.text}${marker}`);
       }

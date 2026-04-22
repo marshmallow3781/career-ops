@@ -118,12 +118,13 @@ async function main() {
     const floor = config.experience_sources.overrides?.[dir]?.tier_floor || null;
     const tier = assignTier(pool.length, floor);
     const fmRef = sources[dir][0].frontmatter;
-    const co = { dir, frontmatter: fmRef, tier };
+    // Always set stub — the renderer falls back to it when bullets array is
+    // empty (e.g. tier_floor=light promoted an empty pool to "light" tier).
+    const stub = config.experience_sources.overrides?.[dir]?.stub
+      || `Worked at ${fmRef.company} as ${fmRef.role}.`;
+    const co = { dir, frontmatter: fmRef, tier, stub };
 
-    if (tier === 'stub') {
-      co.stub = config.experience_sources.overrides?.[dir]?.stub
-        || `Worked at ${fmRef.company} as ${fmRef.role}.`;
-    } else {
+    if (tier !== 'stub') {
       const n = tier === 'full'
         ? (config.archetype_defaults?.[archetype]?.top_bullets_full || 4)
         : (config.tier_rules?.light_bullets || 2);

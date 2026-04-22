@@ -129,6 +129,11 @@ export function checkBulletProvenance(markdown, sourcesRoot) {
       });
       continue;
     }
+    // Sentinel: stub bullets come from config/profile.yml overrides[company].stub,
+    // not from a source file. They are intentional fallback content, not LLM-invented.
+    if (b.marker.path === '_stub') {
+      continue;
+    }
     const sourcePath = join(sourcesRoot, b.marker.path);
     const sourceBullets = readSourceBullets(sourcePath);
     if (sourceBullets === null) {

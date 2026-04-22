@@ -88,6 +88,12 @@ test('provenance: ATS rephrase within 0.85 ratio passes', () => {
   );
 });
 
+test('provenance: _stub sentinel marker passes (intentional config-driven fallback)', () => {
+  const tailored = '- Built features on a global commerce platform. <!-- src:_stub -->';
+  const errors = checkBulletProvenance(tailored, '/nonexistent');
+  assert.deepEqual(errors, []);
+});
+
 test('provenance: missing source file → source_not_found error', () => {
   const tailored = '- Some bullet <!-- src:nonexistent/backend.md#L5 -->';
   const errors = checkBulletProvenance(tailored, '/tmp/no-such-dir-xyz123');

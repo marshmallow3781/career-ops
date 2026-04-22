@@ -3,6 +3,7 @@ cv.md
 cv.tailored.md
 .cv-tailored-meta.json
 .cv-tailored-errors.json
+experience_source/
 data/applications.md
 data/pipeline.md
 data/scan-history.tsv

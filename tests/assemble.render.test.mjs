@@ -50,6 +50,24 @@ test('renderTailored: projects have provenance markers', () => {
   assert.match(md, /Queue Service.*<!-- src:acme\/backend\.md#L15 -->/);
 });
 
+test('renderTailored: stub bullets carry _stub provenance marker', () => {
+  const md = renderTailored({ profile, companies, projects, competencies, summary });
+  assert.match(md, /Built features on a global commerce platform.*<!-- src:_stub -->/);
+});
+
+test('renderTailored: empty bullets array falls back to stub (tier promoted by floor)', () => {
+  const promoted = [{
+    dir: 'meta',
+    frontmatter: { company: 'Meta', role: 'SWE', location: 'Menlo Park', start: '2023-01', end: '2024-01' },
+    tier: 'light',  // promoted from stub via tier_floor; pool was empty
+    stub: 'Built features at scale.',
+    bullets: [],
+  }];
+  const md = renderTailored({ profile, companies: promoted, projects: [], competencies: [], summary: 'x' });
+  assert.match(md, /Built features at scale/);
+  assert.match(md, /<!-- src:_stub -->/);
+});
+
 test('renderTailored: competencies and summary present', () => {
   const md = renderTailored({ profile, companies, projects, competencies, summary });
   assert.match(md, /Distributed systems/);
