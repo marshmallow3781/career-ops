@@ -66,3 +66,49 @@ function extractSkills(body) {
   if (!m) return [];
   return m[1].split(',').map(s => s.trim()).filter(Boolean);
 }
+
+/**
+ * Walk a sources root and return { [companyDir]: [parsedFacetFile, ...] }.
+ */
+export function loadAllSources(sourcesRoot) {
+  const out = {};
+  const dirs = readdirSync(sourcesRoot)
+    .filter(name => statSync(join(sourcesRoot, name)).isDirectory())
+    .filter(name => !name.startsWith('.') && !name.startsWith('_'));
+  for (const company of dirs) {
+    const dir = join(sourcesRoot, company);
+    const files = readdirSync(dir).filter(f => f.endsWith('.md'));
+    out[company] = [];
+    for (const file of files) {
+      const content = readFileSync(join(dir, file), 'utf-8');
+      try {
+        const parsed = parseSourceFile(content);
+        parsed._sourcePath = join(company, file);
+        out[company].push(parsed);
+      } catch (err) {
+        throw new Error(`${join(company, file)}: ${err.message}`);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Within each company, every facet file must agree on role / start / end / location.
+ */
+export function validateConsistency(sources) {
+  for (const [company, files] of Object.entries(sources)) {
+    if (files.length < 2) continue;
+    const ref = files[0].frontmatter;
+    for (const f of files.slice(1)) {
+      for (const key of ['role', 'start', 'end', 'location']) {
+        if (f.frontmatter[key] !== ref[key]) {
+          throw new Error(
+            `Cross-facet mismatch in ${company}: "${key}" differs ` +
+            `("${ref[key]}" in ${files[0]._sourcePath} vs "${f.frontmatter[key]}" in ${f._sourcePath})`
+          );
+        }
+      }
+    }
+  }
+}

@@ -57,3 +57,98 @@ test('parseSourceFile: missing required frontmatter throws', () => {
   const broken = `---\ncompany: Acme\n---\n## Bullets\n- foo`;
   assert.throws(() => parseSourceFile(broken), /frontmatter/i);
 });
+
+import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { loadAllSources, validateConsistency } from '../assemble-core.mjs';
+
+function withFakeSources(setup, fn) {
+  const dir = mkdtempSync(join(tmpdir(), 'cv-sources-'));
+  try {
+    setup(dir);
+    return fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const facetA = `---
+company: Acme Corp
+role: Senior Engineer
+location: SF
+start: 2023-04
+end: 2024-11
+facet: backend
+---
+## Bullets
+- A1
+- A2
+`;
+
+const facetB = `---
+company: Acme Corp
+role: Senior Engineer
+location: SF
+start: 2023-04
+end: 2024-11
+facet: frontend
+---
+## Bullets
+- B1
+`;
+
+const facetMismatch = `---
+company: Acme Corp
+role: Staff Engineer
+location: SF
+start: 2023-04
+end: 2024-11
+facet: frontend
+---
+## Bullets
+- B1
+`;
+
+test('loadAllSources: groups files by company', () => {
+  withFakeSources(
+    (dir) => {
+      mkdirSync(join(dir, 'acme'));
+      writeFileSync(join(dir, 'acme', 'backend.md'), facetA);
+      writeFileSync(join(dir, 'acme', 'frontend.md'), facetB);
+    },
+    (dir) => {
+      const sources = loadAllSources(dir);
+      assert.equal(Object.keys(sources).length, 1);
+      assert.equal(sources.acme.length, 2);
+    }
+  );
+});
+
+test('validateConsistency: identical role across facets → ok', () => {
+  withFakeSources(
+    (dir) => {
+      mkdirSync(join(dir, 'acme'));
+      writeFileSync(join(dir, 'acme', 'backend.md'), facetA);
+      writeFileSync(join(dir, 'acme', 'frontend.md'), facetB);
+    },
+    (dir) => {
+      const sources = loadAllSources(dir);
+      assert.doesNotThrow(() => validateConsistency(sources));
+    }
+  );
+});
+
+test('validateConsistency: mismatched role across facets throws', () => {
+  withFakeSources(
+    (dir) => {
+      mkdirSync(join(dir, 'acme'));
+      writeFileSync(join(dir, 'acme', 'backend.md'), facetA);
+      writeFileSync(join(dir, 'acme', 'frontend.md'), facetMismatch);
+    },
+    (dir) => {
+      const sources = loadAllSources(dir);
+      assert.throws(() => validateConsistency(sources), /role/i);
+    }
+  );
+});
