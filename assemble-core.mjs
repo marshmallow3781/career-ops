@@ -285,3 +285,13 @@ export function renderTailored({ profile, companies, projects, competencies, sum
 
   return lines.join('\n');
 }
+
+/**
+ * Load and parse config/profile.yml. Throws if file missing.
+ */
+export function loadConfig(path) {
+  if (!existsSync(path)) {
+    throw new Error(`Config file not found: ${path}. Copy config/profile.example.yml.`);
+  }
+  return yaml.load(readFileSync(path, 'utf-8'));
+}
