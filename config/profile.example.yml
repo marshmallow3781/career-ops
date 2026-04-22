@@ -22,20 +22,26 @@ target_roles:
     - "Senior AI Engineer"
     - "Staff ML Engineer"
 
-  # (autopilot) Multi-facet candidates: list every archetype you're open to
+  # (autopilot) Multi-facet candidates: list every archetype you're open to.
+  # Note: machine_learning = classical ML (XGBoost, feature stores, rec systems).
+  # ai_engineer = LLM/agent/RAG engineering (LangChain, eval harnesses).
+  # ai_native = product role at an AI-native company (LLM-first products).
   archetypes_of_interest:
     - frontend
     - backend
     - infra
     - machine_learning
+    - ai_engineer
+    - ai_native
     - fullstack
 
   seniority_min: "Mid-Senior"
   seniority_max: "Staff"
+  # Hard-filter strings (applied in Stage 1, free).
+  # Note: Intern/Junior/Entry Level are handled by Haiku's rubric (0-2 score),
+  # so they appear in the "Skip" bucket of the digest rather than being dropped.
   deal_breakers:
-    - "Intern"
-    - "Junior"
-    - "Entry Level"
+    - "Test"
     - "Contract"
     - "C2C"
 
