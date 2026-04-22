@@ -1,0 +1,48 @@
+# Apify LinkedIn scraper configuration
+# Copy this file to config/apify-search.yml and adjust as needed.
+# The non-example file is gitignored.
+
+actor_id: BHzefUZlZRKWxkTck  # curious_coder/linkedin-jobs-scraper
+api_token_env: APIFY_API_TOKEN
+
+default_params:
+  title: "Software Engineer"
+  workType: null              # all
+  contractType: null          # all (Haiku filters out Contract/C2C)
+  experienceLevel: null       # all (title filter + Haiku handle seniority)
+  proxy:
+    useApifyProxy: true
+    apifyProxyGroups: ["RESIDENTIAL"]
+
+locations:
+  - name: california
+    location: "California, United States"
+    geoId: "102095887"
+    baseline_rows: 500
+    hourly_rows: 200
+  - name: seattle
+    location: "Greater Seattle Area"
+    geoId: "90000091"
+    baseline_rows: 300
+    hourly_rows: 100
+  - name: new-york
+    location: "New York City Metropolitan Area"
+    geoId: "90000070"
+    baseline_rows: 300
+    hourly_rows: 100
+  - name: boston
+    location: "Boston, Massachusetts, United States"
+    geoId: "102380872"
+    baseline_rows: 300
+    hourly_rows: 100
+
+baseline:
+  schedule_pst: "07:00"
+  params:
+    publishedAt: r86400       # past 24h
+
+hourly:
+  # Every 2 hours, 7am-9pm PST → 8 runs/day
+  schedule_pst: ["07:00", "09:00", "11:00", "13:00", "15:00", "17:00", "19:00", "21:00"]
+  params:
+    publishedAt: r7200        # past 2h window w/ overlap

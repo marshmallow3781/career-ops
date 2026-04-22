@@ -21,6 +21,40 @@ target_roles:
   primary:
     - "Senior AI Engineer"
     - "Staff ML Engineer"
+
+  # (autopilot) Multi-facet candidates: list every archetype you're open to
+  archetypes_of_interest:
+    - frontend
+    - backend
+    - infra
+    - machine_learning
+    - fullstack
+
+  seniority_min: "Mid-Senior"
+  seniority_max: "Staff"
+  deal_breakers:
+    - "Intern"
+    - "Junior"
+    - "Entry Level"
+    - "Contract"
+    - "C2C"
+
+  # Companies to exclude from the digest entirely. Case-insensitive substring
+  # match against the normalized company slug. Applied in digest-builder
+  # Stage 1 alongside title filter — zero LLM cost.
+  company_blacklist:
+    - "RemoteHunter"
+    - "Walmart"
+    - "PayPal"
+    - "Jobright.ai"
+    - "Turing"
+    - "ByteDance"
+    - "TikTok"
+    - "Insight Global"
+    - "CyberCoders"
+    - "Jobs via Dice"
+    - "Open Talent"
+
   # Archetypes help the evaluation system score fit
   archetypes:
     - name: "AI/ML Engineer"

@@ -20,6 +20,14 @@ batch/tracker-additions/**/*.tsv
 jds/*
 !jds/.gitkeep
 
+# Autopilot state + output (gitignored, user-specific)
+config/apify-search.yml
+data/seen-jobs.tsv
+data/apify-new-*.json
+data/apify-new-archive/
+data/digest.md
+data/digest-history/
+
 # User config and customization (never auto-updated)
 config/profile.yml
 portals.yml

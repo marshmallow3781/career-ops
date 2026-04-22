@@ -4,6 +4,9 @@
   "description": "AI-powered job search pipeline built on Claude Code",
   "scripts": {
     "assemble": "node assemble-cv.mjs",
+    "autopilot:apify-scan": "node apify-scan.mjs",
+    "autopilot:digest": "node digest-builder.mjs",
+    "autopilot:dry-run": "node apify-scan.mjs --dry-run && node digest-builder.mjs --dry-run",
     "dedup": "node dedup-tracker.mjs",
     "doctor": "node doctor.mjs",
     "gemini:eval": "node gemini-eval.mjs",
@@ -36,6 +39,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
     "@google/generative-ai": "^0.21.0",
+    "apify-client": "^2.9.5",
     "dotenv": "^16.4.5",
     "js-yaml": "^4.1.1",
     "playwright": "^1.58.1"
