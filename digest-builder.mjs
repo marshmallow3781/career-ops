@@ -189,34 +189,64 @@ IMPORTANT:
 Output ONLY the JSON object. No preamble, no markdown.`;
 
 /**
- * Pre-filter one job via Haiku.
+ * Pre-filter one job via the configured LLM provider (Anthropic / MiniMax / etc.).
+ *
+ * @param {object} job
+ * @param {string} systemPrompt
+ * @param {string} candidateSummary
+ * @param {object} client — provider client (Anthropic or OpenAI-compat) — injectable
+ * @param {object} [config] — LLM config (if null, reads from env via lib/llm.mjs)
  * @returns {Promise<{archetype, score, reason}>} where score is integer 0-10 or null
  */
-export async function preFilterJob(job, systemPrompt, candidateSummary, client) {
+export async function preFilterJob(job, systemPrompt, candidateSummary, client, config = null) {
   const userMessage =
     `<job>\nTitle: ${job.title || ''}\nCompany: ${job.company || ''}\n` +
     `Location: ${job.location || ''}\nDescription:\n` +
     `${(job.description || '').slice(0, 3000)}\n</job>\n\nReturn JSON.`;
 
-  let response;
-  try {
-    response = await client.messages.create({
-      model: HAIKU_MODEL,
-      max_tokens: 120,
-      temperature: 0,
-      system: [
+  // Build system blocks — cache_control only applies to Anthropic
+  const providerIsAnthropic = !config || config.provider === 'anthropic';
+  const systemBlocks = providerIsAnthropic
+    ? [
         { type: 'text', text: systemPrompt || SYSTEM_PROMPT,
           cache_control: { type: 'ephemeral', ttl: '1h' } },
         { type: 'text', text: candidateSummary,
           cache_control: { type: 'ephemeral', ttl: '1h' } },
-      ],
-      messages: [{ role: 'user', content: userMessage }],
-    });
+      ]
+    : [
+        { type: 'text', text: systemPrompt || SYSTEM_PROMPT },
+        { type: 'text', text: candidateSummary },
+      ];
+
+  let text;
+  try {
+    if (providerIsAnthropic) {
+      // Legacy path: client is an Anthropic instance with messages.create
+      const response = await client.messages.create({
+        model: (config && config.model) || HAIKU_MODEL,
+        max_tokens: 120,
+        temperature: 0,
+        system: systemBlocks,
+        messages: [{ role: 'user', content: userMessage }],
+      });
+      text = (response.content?.[0]?.text || '').trim();
+    } else {
+      // OpenAI-compatible path (MiniMax, OpenAI, DeepSeek, etc.)
+      const systemText = systemBlocks.map(b => b.text).join('\n\n');
+      const response = await client.chat.completions.create({
+        model: config.model,
+        max_tokens: 120,
+        temperature: 0,
+        messages: [
+          { role: 'system', content: systemText },
+          { role: 'user', content: userMessage },
+        ],
+      });
+      text = (response.choices?.[0]?.message?.content || '').trim();
+    }
   } catch (e) {
     return { archetype: 'unknown', score: null, reason: `prefilter unavailable: ${(e.message || '').slice(0, 60)}` };
   }
-
-  const text = (response.content?.[0]?.text || '').trim();
 
   // Try strict JSON parse first; fall back to regex extract
   let parsed = null;
@@ -367,11 +397,12 @@ export function renderDigest({ jobs, existingDigest, nowPst, totalJobs, bucketCo
  * @param {object} args.sources — experience_source parsed (from assemble-core.loadAllSources)
  * @param {object[]} args.candidateJobs — jobs from apify-new + scan output to triage
  * @param {string} args.existingDigest — current digest.md content (empty for 7am)
- * @param {object} args.haikuClient — Anthropic client (mocked in tests)
+ * @param {object} args.haikuClient — LLM client (Anthropic or OpenAI-compat; mocked in tests)
+ * @param {object} [args.llmConfig] — { provider, model, apiKey, baseURL } — if omitted, Anthropic path is assumed (back-compat)
  * @param {boolean} args.dryRun
  * @returns {Promise<{digestMd, pipelineAdditions, notification, stats}>}
  */
-export async function buildDigest({ profile, portals, sources, candidateJobs, existingDigest, haikuClient, dryRun }) {
+export async function buildDigest({ profile, portals, sources, candidateJobs, existingDigest, haikuClient, llmConfig, dryRun }) {
   const dealBreakers = profile?.target_roles?.deal_breakers || [];
   const companyBlacklist = profile?.target_roles?.company_blacklist || [];
   const titleFilter = portals?.title_filter || { positive: [], negative: [] };
@@ -396,7 +427,7 @@ export async function buildDigest({ profile, portals, sources, candidateJobs, ex
   const candidateSummary = buildCandidateSummary(profile, sources);
   const prefiltered = [];
   for (const j of stage2) {
-    const { archetype, score, reason } = await preFilterJob(j, SYSTEM_PROMPT, candidateSummary, haikuClient);
+    const { archetype, score, reason } = await preFilterJob(j, SYSTEM_PROMPT, candidateSummary, haikuClient, llmConfig);
     prefiltered.push({ ...j, archetype, score, reason });
   }
 
@@ -563,14 +594,27 @@ async function main() {
 
   const existingDigest = existsSync(DIGEST_PATH) ? readFileSync(DIGEST_PATH, 'utf-8') : '';
 
-  // Build Haiku client
-  const haikuClient = dryRun
-    ? { messages: { create: async () => ({ content: [{ text: '{"archetype":"unknown","score":null,"reason":"dry run"}' }] }) } }
-    : new Anthropic();
+  // Build LLM config + client based on env (LLM_PROVIDER, LLM_MODEL, LLM_API_KEY, LLM_BASE_URL)
+  // Defaults to anthropic+claude-haiku-4-5 if LLM_PROVIDER is unset.
+  let llmConfig = null;
+  let haikuClient;
+  if (dryRun) {
+    // Dry-run: mock both Anthropic and OpenAI-compat shapes
+    haikuClient = {
+      messages: { create: async () => ({ content: [{ text: '{"archetype":"unknown","score":null,"reason":"dry run"}' }] }) },
+      chat: { completions: { create: async () => ({ choices: [{ message: { content: '{"archetype":"unknown","score":null,"reason":"dry run"}' } }] }) } },
+    };
+  } else {
+    const { initLlm } = await import('./lib/llm.mjs');
+    const initialized = initLlm();
+    llmConfig = initialized.config;
+    haikuClient = initialized.client;
+    console.error(`[digest-builder] using LLM provider=${llmConfig.provider} model=${llmConfig.model}`);
+  }
 
   const result = await buildDigest({
     profile, portals, sources, candidateJobs,
-    existingDigest, haikuClient, dryRun,
+    existingDigest, haikuClient, llmConfig, dryRun,
   });
 
   if (!dryRun) {
