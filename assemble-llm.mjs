@@ -213,15 +213,27 @@ export async function pickBullets(pool, jdText, n, client = defaultClient(), exc
     : '';
 
   // Inject role-intent context if available — steers picks beyond keyword scoring
-  const intentBlock = intent && (intent.primary_focus || intent.prefer_patterns?.length || intent.deprioritize_patterns?.length)
-    ? `\n\nROLE INTENT (use this to filter the pool):
-- Role type: ${intent.role_type || 'unknown'}
-- What they actually want: ${intent.primary_focus || '(not extracted)'}
-- PREFER bullets about: ${(intent.prefer_patterns || []).join(', ') || '(none specified)'}
-- DEPRIORITIZE bullets about: ${(intent.deprioritize_patterns || []).join(', ') || '(none specified)'}
-
-When picking, favor bullets in the PREFER list even if their raw keyword match is slightly lower. Avoid bullets in the DEPRIORITIZE list unless no alternative exists.\n`
-    : '';
+  let intentBlock = '';
+  if (intent && (intent.primary_focus || intent.prefer_patterns?.length || intent.deprioritize_patterns?.length)) {
+    const lines = [
+      '',
+      '',
+      'ROLE INTENT (use this to filter the pool):',
+      `- Role type: ${intent.role_type || 'unknown'}`,
+      `- What they actually want: ${intent.primary_focus || '(not extracted)'}`,
+      `- PREFER bullets about: ${(intent.prefer_patterns || []).join(', ') || '(none specified)'}`,
+    ];
+    const hasDeprio = Array.isArray(intent.deprioritize_patterns) && intent.deprioritize_patterns.length > 0;
+    if (hasDeprio) {
+      lines.push(`- DEPRIORITIZE bullets about: ${intent.deprioritize_patterns.join(', ')}`);
+    }
+    lines.push('');
+    lines.push(hasDeprio
+      ? 'When picking, favor bullets in the PREFER list even if their raw keyword match is slightly lower. Avoid bullets in the DEPRIORITIZE list unless no alternative exists.'
+      : 'When picking, favor bullets in the PREFER list even if their raw keyword match is slightly lower.');
+    lines.push('');
+    intentBlock = lines.join('\n');
+  }
 
   const response = await client.messages.create({
     model: DEFAULT_MODEL,
