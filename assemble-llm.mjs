@@ -229,7 +229,20 @@ export async function classifyArchetype(jdText, client = defaultClient()) {
     system: 'You are a strict classifier. Output EXACTLY one word from this list and NOTHING ELSE: frontend, backend, infra, machine_learning, applied_ai, ml_platform, fullstack. No explanation, no reasoning, no punctuation, no quotes, no markdown.',
     messages: [{
       role: 'user',
-      content: `Classify this JD into exactly one of: frontend, backend, infra, machine_learning, applied_ai, ml_platform, fullstack.
+      content: `Classify this JD into exactly one of:
+
+- frontend — UI, web, design systems
+- backend — product-side APIs, services, distributed systems
+- infra — platform engineering, SRE, devops, data platform
+- machine_learning — builds/trains ML models, applied ML, research
+- ml_platform — builds infra/SDKs/tooling FOR ML teams (not models)
+- applied_ai — builds production AI/LLM/agent SYSTEMS end-to-end (ships AI products, not models)
+- fullstack — balanced FE+BE product engineering
+
+Key distinctions:
+- machine_learning = trains models
+- ml_platform = builds the platform ML teams use to train/serve models
+- applied_ai = ships LLM/agent products with observability, evaluation, tool-calling
 
 Output ONLY the single word. Do not explain.
 
