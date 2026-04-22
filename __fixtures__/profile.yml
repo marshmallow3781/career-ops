@@ -1,0 +1,38 @@
+candidate:
+  full_name: Test User
+  email: test@example.com
+  location: San Francisco, CA
+  linkedin: linkedin.com/in/testuser
+  portfolio_url: https://testuser.dev
+
+narrative:
+  headline: Backend engineer who's worked across infra and ML
+  exit_story: Built and shipped systems at three companies over 7 years.
+
+experience_sources:
+  root: experience_source
+  archetypes:
+    frontend: frontend.md
+    backend: backend.md
+    infra: infra.md
+    machine_learning: machine_learning.md
+  jd_archetype_sources:
+    frontend:         [frontend]
+    backend:          [backend]
+    infra:            [infra]
+    machine_learning: [machine_learning]
+    fullstack:        [frontend, backend]
+  overrides:
+    initech:
+      tier_floor: light
+      stub: "Built infra at a mid-stage SaaS company."
+
+archetype_defaults:
+  frontend:         { top_bullets_full: 4, top_projects: 3 }
+  backend:          { top_bullets_full: 4, top_projects: 3 }
+  infra:            { top_bullets_full: 4, top_projects: 3 }
+  machine_learning: { top_bullets_full: 4, top_projects: 3 }
+  fullstack:        { top_bullets_full: 5, top_projects: 4 }
+
+tier_rules:
+  light_bullets: 2
