@@ -357,3 +357,92 @@ export function renderDigest({ jobs, existingDigest, nowPst, totalJobs, bucketCo
 
   return lines.join('\n');
 }
+
+/**
+ * Main digest-builder orchestrator (injectable for tests).
+ * @param {object} args
+ * @param {object} args.profile — parsed config/profile.yml
+ * @param {object} args.portals — parsed portals.yml (for title_filter)
+ * @param {object} args.sources — experience_source parsed (from assemble-core.loadAllSources)
+ * @param {object[]} args.candidateJobs — jobs from apify-new + scan output to triage
+ * @param {string} args.existingDigest — current digest.md content (empty for 7am)
+ * @param {object} args.haikuClient — Anthropic client (mocked in tests)
+ * @param {boolean} args.dryRun
+ * @returns {Promise<{digestMd, pipelineAdditions, notification, stats}>}
+ */
+export async function buildDigest({ profile, portals, sources, candidateJobs, existingDigest, haikuClient, dryRun }) {
+  const dealBreakers = profile?.target_roles?.deal_breakers || [];
+  const companyBlacklist = profile?.target_roles?.company_blacklist || [];
+  const titleFilter = portals?.title_filter || { positive: [], negative: [] };
+
+  // Stage 1 — free rule-based filter (title keywords + deal-breakers + company blacklist)
+  const stage1 = candidateJobs.filter(j =>
+    applyTitleFilter(j.title, titleFilter, dealBreakers) &&
+    !isCompanyBlacklisted(j.company, companyBlacklist)
+  );
+
+  // Stage 2 — fingerprint dedup (within this batch + against history via seen.fingerprints)
+  const seenInBatch = new Set();
+  const stage2 = [];
+  for (const j of stage1) {
+    const fp = j.jd_fingerprint || (j.description ? computeJdFingerprint(j.description) : null);
+    if (fp && seenInBatch.has(fp)) continue;
+    if (fp) seenInBatch.add(fp);
+    stage2.push(j);
+  }
+
+  // Stage 3 — Haiku pre-filter (sequential for cache hit-rate)
+  const candidateSummary = buildCandidateSummary(profile, sources);
+  const prefiltered = [];
+  for (const j of stage2) {
+    const { archetype, score, reason } = await preFilterJob(j, SYSTEM_PROMPT, candidateSummary, haikuClient);
+    prefiltered.push({ ...j, archetype, score, reason });
+  }
+
+  // Compute bucket + archetype counts
+  const bucketCounts = { strong: 0, maybe: 0, no: 0, skip: 0, unavailable: 0 };
+  const archetypeCounts = {};
+  for (const j of prefiltered) {
+    archetypeCounts[j.archetype] = (archetypeCounts[j.archetype] || 0) + 1;
+    if (j.score === null) bucketCounts.unavailable++;
+    else if (j.score >= 8) bucketCounts.strong++;
+    else if (j.score >= 6) bucketCounts.maybe++;
+    else if (j.score >= 4) bucketCounts.no++;
+    else bucketCounts.skip++;
+  }
+
+  // Render digest.md
+  const nowPst = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour12: false });
+  const digestMd = renderDigest({
+    jobs: prefiltered,
+    existingDigest,
+    nowPst: nowPst + ' PST',
+    totalJobs: prefiltered.length,
+    bucketCounts,
+    archetypeCounts,
+  });
+
+  // Pipeline additions — score ≥ 6 only, format matches pipeline.md
+  const pipelineAdditions = prefiltered
+    .filter(j => j.score !== null && j.score >= 6)
+    .map(j => `- [ ] ${j.url} | ${j.company} | ${j.title}  <!-- prefilter: ${j.score}/10 ${j.archetype} -->`);
+
+  // Notification text
+  const topJob = prefiltered.filter(j => j.score !== null).sort((a, b) => b.score - a.score)[0];
+  const notification = topJob
+    ? `${prefiltered.length} new jobs, top: ${topJob.company} (${topJob.score}/10)`
+    : `${prefiltered.length} new jobs (no pre-filter results)`;
+
+  return {
+    digestMd,
+    pipelineAdditions,
+    notification,
+    stats: {
+      total_scored: prefiltered.length,
+      stage1_passed: stage1.length,
+      stage2_passed: stage2.length,
+      bucketCounts,
+      archetypeCounts,
+    },
+  };
+}
