@@ -139,3 +139,70 @@ export async function sortCompanies(sourcesRoot, companyDirs) {
   });
   return dated.map(d => d.dir);
 }
+
+const STOPWORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'but', 'with', 'for', 'of', 'to', 'in', 'on', 'at',
+  'by', 'from', 'as', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has',
+  'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'may', 'might', 'must',
+  'we', 'our', 'you', 'your', 'their', 'this', 'that', 'these', 'those', 'job', 'role',
+  'team', 'company', 'work', 'experience', 'years', 'year', 'looking', 'hiring', 'engineer',
+  'engineering', 'senior', 'junior', 'staff', 'lead', 'principal',
+]);
+
+/**
+ * Cheap keyword extraction: lowercase tokens 3+ chars, drop stopwords.
+ * No stemming. Returns Set<string>.
+ */
+export function extractKeywords(jdText) {
+  const tokens = jdText.toLowerCase().match(/[a-z][a-z0-9+#./-]{2,}/g) || [];
+  const out = new Set();
+  for (const t of tokens) {
+    if (STOPWORDS.has(t)) continue;
+    out.add(t);
+  }
+  return out;
+}
+
+/**
+ * Given a Set of keywords, expand each by adding all aliases from the synonym table
+ * AND the canonical form when an alias matches.
+ * @param {Set<string>} keywords
+ * @param {string} synonymsPath — path to YAML
+ * @returns {Set<string>}
+ */
+export function expandSynonyms(keywords, synonymsPath) {
+  let table;
+  try {
+    table = yaml.load(readFileSync(synonymsPath, 'utf-8'));
+  } catch {
+    return new Set(keywords);
+  }
+  const expanded = new Set(keywords);
+  for (const group of table.groups || []) {
+    const allForms = [group.canonical, ...(group.aliases || [])];
+    const lcForms = allForms.map(f => f.toLowerCase());
+    const triggered = lcForms.some(f => expanded.has(f));
+    if (triggered) {
+      for (const f of lcForms) expanded.add(f);
+    }
+  }
+  return expanded;
+}
+
+/**
+ * Count the number of distinct keywords that appear in the bullet text (case-insensitive,
+ * whole-phrase). Returns an integer.
+ */
+export function scoreBullet(bulletText, keywords) {
+  const lc = bulletText.toLowerCase();
+  let hits = 0;
+  for (const kw of keywords) {
+    const re = new RegExp(`\\b${escapeRegex(kw.toLowerCase())}\\b`);
+    if (re.test(lc)) hits++;
+  }
+  return hits;
+}
+
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
