@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import {
   loadConfig, loadAllSources, validateConsistency, sortCompanies,
   extractKeywords, expandSynonyms, scoreBullet, assignTier, renderTailored,
-  loadArticleDigest,
+  loadArticleDigest, computeSkillsBonus,
 } from './assemble-core.mjs';
 import {
   defaultClient, classifyArchetype, pickBullets, extractJdIntent,
@@ -102,16 +102,23 @@ async function main() {
   for (const dir of sortedDirs) {
     const facetFiles = sources[dir];   // ALL facets — no archetype filter
     const pool = [];
+    const skillsBonusesForCompany = {};
     for (const f of facetFiles) {
+      const skillsBonus = computeSkillsBonus(f.skills, keywords);
+      const facetFileName = f._sourcePath.split('/').pop();
+      skillsBonusesForCompany[facetFileName] = skillsBonus;
       for (const b of f.bullets) {
-        const score = scoreBullet(b.text, keywords);
+        const baseScore = scoreBullet(b.text, keywords);
+        const score = baseScore + skillsBonus;
         if (score >= SCORE_THRESHOLD) {
           pool.push({
             text: b.text,
             sourcePath: f._sourcePath,
             sourceLine: b.lineNumber,
-            facet: f.frontmatter.facet,   // annotate source facet for transparency
+            facet: f.frontmatter.facet,
             score,
+            _baseScore: baseScore,
+            _skillsBonus: skillsBonus,
           });
         }
       }
@@ -152,7 +159,14 @@ async function main() {
     }
 
     companies.push(co);
-    meta.companies.push({ dir, tier, pool_size: pool.length, picked: co.bullets?.length || (co.stub ? 1 : 0) });
+    meta.companies.push({
+      dir,
+      tier,
+      pool_size: pool.length,
+      picked: co.bullets?.length || (co.stub ? 1 : 0),
+      skills_bonuses: skillsBonusesForCompany,
+      top_pool_scores: pool.slice(0, 10).map(p => p.score),
+    });
   }
 
   const articleProjects = loadArticleDigest(__dirname);

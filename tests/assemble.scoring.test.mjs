@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractKeywords, expandSynonyms, scoreBullet } from '../assemble-core.mjs';
+import { extractKeywords, expandSynonyms, scoreBullet, computeSkillsBonus } from '../assemble-core.mjs';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -59,4 +59,20 @@ test('scoreBullet: singular keyword matches plural bullet token', () => {
   const bullet = 'Developed APIs for payment processing';
   const keywords = new Set(['api']);
   assert.equal(scoreBullet(bullet, keywords), 1);
+});
+
+test('computeSkillsBonus: counts case-insensitive overlap capped at 3', () => {
+  const skills = ['TypeScript', 'React', 'SDK design', 'Puppeteer', 'Lighthouse', 'Redis'];
+  const keywords = new Set(['typescript', 'react', 'sdk design', 'puppeteer']);
+  assert.equal(computeSkillsBonus(skills, keywords), 3);
+});
+
+test('computeSkillsBonus: returns 0 for empty skills list', () => {
+  assert.equal(computeSkillsBonus([], new Set(['typescript'])), 0);
+});
+
+test('computeSkillsBonus: returns 0 when no overlap', () => {
+  const skills = ['Go', 'Kubernetes'];
+  const keywords = new Set(['typescript', 'react']);
+  assert.equal(computeSkillsBonus(skills, keywords), 0);
 });

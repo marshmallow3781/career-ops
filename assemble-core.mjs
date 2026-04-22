@@ -217,6 +217,21 @@ function escapeRegex(s) {
 }
 
 /**
+ * Count the overlap between a file's `## Skills used` list and a JD keyword
+ * set, capped at `cap`. Used in assemble-cv.mjs to add a per-file topical
+ * bonus to every bullet from that file, so a file whose skills clearly match
+ * the JD lifts all its bullets even when individual bullets lexically miss.
+ */
+export function computeSkillsBonus(skills, keywords, cap = 3) {
+  if (!Array.isArray(skills) || skills.length === 0) return 0;
+  let overlap = 0;
+  for (const s of skills) {
+    if (keywords.has(String(s).toLowerCase())) overlap++;
+  }
+  return Math.min(overlap, cap);
+}
+
+/**
  * Decide the rendering tier for a company based on candidate pool size and per-company floor.
  * @param {number} poolSize
  * @param {'full'|'light'|'stub'|null} floor
