@@ -244,3 +244,116 @@ export async function preFilterJob(job, systemPrompt, candidateSummary, client) 
 
   return { archetype, score, reason };
 }
+
+const BUCKET_DEFS = [
+  { name: 'strong', emoji: '🔥', label: 'Score ≥ 8 — Strong Match',  min: 8, max: 10 },
+  { name: 'maybe',  emoji: '⚡', label: 'Score 6-7 — Worth a Look',    min: 6, max: 7 },
+  { name: 'no',     emoji: '💤', label: 'Score 4-5 — Probably Not',    min: 4, max: 5 },
+  { name: 'skip',   emoji: '🚫', label: 'Score ≤ 3 — Skip',             min: 0, max: 3 },
+];
+
+const ARCHETYPE_EMOJI = {
+  backend: '🔧',
+  infra: '🏗️',
+  machine_learning: '🧠',
+  frontend: '🎨',
+  fullstack: '🌐',
+  unknown: '❓',
+};
+
+const ARCHETYPE_LABEL = {
+  backend: 'Backend',
+  infra: 'Infra',
+  machine_learning: 'Machine Learning',
+  frontend: 'Frontend',
+  fullstack: 'Fullstack',
+  unknown: 'Unknown',
+};
+
+/**
+ * Extract { url: 'x' | ' ' } checkbox state map from an existing digest markdown.
+ */
+function extractCheckboxState(existingMd) {
+  if (!existingMd) return {};
+  const state = {};
+  const lines = existingMd.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^- \[([ x])\]/);
+    if (m) {
+      // URL on next non-empty line
+      for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+        const u = lines[j].match(/^\s*(https?:\/\/\S+)/);
+        if (u) { state[u[1]] = m[1]; break; }
+      }
+    }
+  }
+  return state;
+}
+
+/**
+ * Render the full digest.md content.
+ */
+export function renderDigest({ jobs, existingDigest, nowPst, totalJobs, bucketCounts, archetypeCounts }) {
+  const checkboxState = extractCheckboxState(existingDigest);
+
+  const lines = [];
+  const dateHeader = nowPst ? nowPst.split(' ')[0] : new Date().toISOString().slice(0, 10);
+  lines.push(`# Job Digest — ${dateHeader} (updated ${nowPst || new Date().toISOString()}, ${totalJobs} jobs)`);
+  lines.push('');
+  const totalsParts = [];
+  totalsParts.push(`🔥 ${bucketCounts.strong || 0} strong`);
+  totalsParts.push(`⚡ ${bucketCounts.maybe || 0} maybe`);
+  totalsParts.push(`💤 ${bucketCounts.no || 0} probably-not`);
+  totalsParts.push(`🚫 ${bucketCounts.skip || 0} skip`);
+  lines.push(`**Totals**: ${totalsParts.join(' · ')}`);
+  const archParts = Object.entries(archetypeCounts || {})
+    .map(([a, n]) => `${a} ${n}`)
+    .join(' · ');
+  lines.push(`**By archetype**: ${archParts}`);
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+
+  // Group jobs by bucket then archetype
+  for (const bucket of BUCKET_DEFS) {
+    const inBucket = jobs.filter(j => j.score !== null && j.score >= bucket.min && j.score <= bucket.max);
+    if (inBucket.length === 0) continue;
+
+    lines.push(`## ${bucket.emoji} ${bucket.label}`);
+    lines.push('');
+
+    const byArchetype = {};
+    for (const j of inBucket) {
+      (byArchetype[j.archetype] ??= []).push(j);
+    }
+    for (const arch of Object.keys(ARCHETYPE_LABEL)) {
+      if (!byArchetype[arch]?.length) continue;
+      lines.push(`### ${ARCHETYPE_EMOJI[arch]} ${ARCHETYPE_LABEL[arch]} (${byArchetype[arch].length})`);
+      for (const j of byArchetype[arch].sort((a, b) => b.score - a.score)) {
+        const check = checkboxState[j.url] === 'x' ? 'x' : ' ';
+        const sourceLine = j.sources?.length ? `  Sources: [${j.sources.join(', ')}]` : '';
+        lines.push(`- [${check}] **${j.score}/10** · ${j.company} · ${j.title} · ${j.location || ''}`);
+        lines.push(`  ${j.url}`);
+        lines.push(`  Why: ${j.reason || '(no reason)'}`);
+        if (sourceLine) lines.push(sourceLine);
+        lines.push('');
+      }
+    }
+  }
+
+  // Unavailable section
+  const unavailable = jobs.filter(j => j.score === null);
+  if (unavailable.length > 0) {
+    lines.push(`## ⚠️ Pre-filter unavailable (${unavailable.length})`);
+    lines.push('');
+    for (const j of unavailable) {
+      const check = checkboxState[j.url] === 'x' ? 'x' : ' ';
+      lines.push(`- [${check}] ${j.company} · ${j.title} · ${j.location || ''}`);
+      lines.push(`  ${j.url}`);
+      lines.push(`  Reason: ${j.reason || 'unknown'}`);
+      lines.push('');
+    }
+  }
+
+  return lines.join('\n');
+}

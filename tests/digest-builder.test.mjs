@@ -173,3 +173,54 @@ test('preFilterJob: API error → score=null unavailable', async () => {
   assert.equal(result.score, null);
   assert.match(result.reason, /rate limit|unavailable/);
 });
+
+import { renderDigest } from '../digest-builder.mjs';
+
+test('renderDigest: groups by score bucket then archetype', () => {
+  const jobs = [
+    { title: 'Backend Engineer', company: 'Acme', location: 'SF', url: 'https://x/1', archetype: 'backend', score: 9, reason: 'go match', sources: ['apify-california'] },
+    { title: 'ML Eng', company: 'Globex', location: 'NY', url: 'https://x/2', archetype: 'machine_learning', score: 8, reason: 'llm work', sources: ['apify-new-york'] },
+    { title: 'Infra Eng', company: 'Initech', location: 'Seattle', url: 'https://x/3', archetype: 'infra', score: 6, reason: 'k8s ok', sources: ['apify-seattle'] },
+    { title: 'Jr Dev', company: 'X', location: 'Y', url: 'https://x/4', archetype: 'backend', score: 2, reason: 'junior', sources: ['apify-california'] },
+  ];
+  const md = renderDigest({
+    jobs,
+    nowPst: '2026-04-22 14:10 PST',
+    totalJobs: 4,
+    bucketCounts: { strong: 2, maybe: 1, no: 0, skip: 1, unavailable: 0 },
+    archetypeCounts: { backend: 2, machine_learning: 1, infra: 1 },
+  });
+  assert.match(md, /## 🔥 Score ≥ 8/);
+  assert.match(md, /### 🔧 Backend/);
+  assert.match(md, /Acme/);
+  assert.match(md, /9\/10/);
+  assert.match(md, /## ⚡ Score 6-7/);
+  assert.match(md, /Initech/);
+  assert.match(md, /## 🚫 Score ≤ 3/);
+});
+
+test('renderDigest: preserves checkbox state from existing digest', () => {
+  const existing = `# Job Digest — 2026-04-22 (updated 12:10 PST, 1 jobs)
+
+## 🔥 Score ≥ 8 — Strong Match
+
+### 🔧 Backend (1)
+- [x] **9/10** · Acme · Backend Engineer · SF
+  https://x/1
+  Why: go match
+`;
+  const jobs = [
+    { title: 'Backend Engineer', company: 'Acme', location: 'SF', url: 'https://x/1', archetype: 'backend', score: 9, reason: 'go match', sources: [] },
+    { title: 'New Role', company: 'Globex', location: 'NY', url: 'https://x/2', archetype: 'backend', score: 8, reason: 'new', sources: [] },
+  ];
+  const md = renderDigest({
+    jobs,
+    existingDigest: existing,
+    nowPst: '2026-04-22 14:10 PST',
+    totalJobs: 2,
+    bucketCounts: { strong: 2, maybe: 0, no: 0, skip: 0, unavailable: 0 },
+    archetypeCounts: { backend: 2 },
+  });
+  assert.match(md, /\[x\].*Acme/, 'Acme retains checked state');
+  assert.match(md, /\[ \].*New Role/, 'New job starts unchecked');
+});
