@@ -17,12 +17,14 @@
 
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
 import yaml from 'js-yaml';
+import { computeJdFingerprint, normalizeCompany, normalizeTitle, appendSeenJobs } from './lib/dedup.mjs';
 const parseYaml = yaml.load;
 
 // ── Config ──────────────────────────────────────────────────────────
 
 const PORTALS_PATH = 'portals.yml';
 const SCAN_HISTORY_PATH = 'data/scan-history.tsv';
+const SEEN_JOBS_PATH = 'data/seen-jobs.tsv';
 const PIPELINE_PATH = 'data/pipeline.md';
 const APPLICATIONS_PATH = 'data/applications.md';
 
@@ -81,6 +83,7 @@ function parseGreenhouse(json, companyName) {
     url: j.absolute_url || '',
     company: companyName,
     location: j.location?.name || '',
+    api_type: 'greenhouse',
   }));
 }
 
@@ -91,6 +94,7 @@ function parseAshby(json, companyName) {
     url: j.jobUrl || '',
     company: companyName,
     location: j.location || '',
+    api_type: 'ashby',
   }));
 }
 
@@ -101,6 +105,7 @@ function parseLever(json, companyName) {
     url: j.hostedUrl || '',
     company: companyName,
     location: j.categories?.location || '',
+    api_type: 'lever',
   }));
 }
 
@@ -181,6 +186,26 @@ function loadSeenCompanyRoles() {
     }
   }
   return seen;
+}
+
+// ── Seen-jobs row mapping (autopilot dedup) ─────────────────────────
+
+function mapScanJobsToSeenJobsRows(jobs, apiType) {
+  const nowIso = new Date().toISOString();
+  return jobs.map(j => ({
+    linkedin_id: '(none)',   // scan.mjs is not LinkedIn
+    url: j.url || '',
+    company_slug: normalizeCompany(j.company || ''),
+    title_normalized: normalizeTitle(j.title || ''),
+    first_seen_utc: nowIso,
+    last_seen_utc: nowIso,
+    source: `scan-${apiType}`,     // e.g., scan-greenhouse
+    status: 'new',
+    jd_fingerprint: j.description ? computeJdFingerprint(j.description) : '(none)',
+    prefilter_archetype: '(none)',
+    prefilter_score: '(none)',
+    prefilter_reason: '(none)',
+  }));
 }
 
 // ── Pipeline writer ─────────────────────────────────────────────────
@@ -326,6 +351,14 @@ async function main() {
   if (!dryRun && newOffers.length > 0) {
     appendToPipeline(newOffers);
     appendToScanHistory(newOffers, date);
+
+    // (autopilot) Also write to seen-jobs.tsv for dedup state
+    const seenRows = [];
+    for (const offer of newOffers) {
+      const apiType = offer.api_type || 'unknown';
+      seenRows.push(...mapScanJobsToSeenJobsRows([offer], apiType));
+    }
+    await appendSeenJobs(SEEN_JOBS_PATH, seenRows);
   }
 
   // 6. Print summary
