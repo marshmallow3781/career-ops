@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import {
   loadConfig, loadAllSources, validateConsistency, sortCompanies,
   extractKeywords, expandSynonyms, scoreBullet, assignTier, renderTailored,
+  loadArticleDigest,
 } from './assemble-core.mjs';
 import {
   defaultClient, classifyArchetype, pickBullets, writeSummary,
@@ -132,6 +133,16 @@ async function main() {
 
     companies.push(co);
     meta.companies.push({ dir, tier, pool_size: pool.length, picked: co.bullets?.length || (co.stub ? 1 : 0) });
+  }
+
+  const articleProjects = loadArticleDigest(__dirname);
+  for (const p of articleProjects) {
+    if (!p.archetype || p.archetype === archetype) {
+      allProjects.push({
+        ...p,
+        score: scoreBullet(p.text, keywords),
+      });
+    }
   }
 
   // 6. Projects: top-N across all

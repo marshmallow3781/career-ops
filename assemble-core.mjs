@@ -295,3 +295,41 @@ export function loadConfig(path) {
   }
   return yaml.load(readFileSync(path, 'utf-8'));
 }
+
+/**
+ * Parse article-digest.md into a list of project candidates.
+ * Each "## ..." H2 becomes one entry. Captures Hero metrics line as the bullet text.
+ */
+export function parseArticleDigest(content, sourcePath) {
+  if (!content) return [];
+  const projects = [];
+  const sections = content.split(/^##\s+/m).slice(1);
+  let lineCounter = 1;
+  for (const sec of sections) {
+    const lines = sec.split('\n');
+    const titleLine = lines[0].trim();
+    const heroLine = lines.find(l => /^\*\*Hero metrics:?\*\*/i.test(l));
+    const archetypeLine = lines.find(l => /^\*\*Archetype:?\*\*/i.test(l));
+    const heroText = heroLine ? heroLine.replace(/^\*\*Hero metrics:?\*\*\s*/i, '') : '';
+    const archetype = archetypeLine ? archetypeLine.replace(/^\*\*Archetype:?\*\*\s*/i, '').trim() : null;
+    const text = heroText ? `**${titleLine}** — ${heroText}` : `**${titleLine}**`;
+    projects.push({
+      text,
+      sourcePath,
+      sourceLine: lineCounter,
+      archetype,
+    });
+    lineCounter += sec.split('\n').length + 1;
+  }
+  return projects;
+}
+
+/**
+ * Convenience: read article-digest.md from the project root if it exists.
+ */
+export function loadArticleDigest(rootDir) {
+  const path = join(rootDir, 'article-digest.md');
+  if (!existsSync(path)) return [];
+  const content = readFileSync(path, 'utf-8');
+  return parseArticleDigest(content, 'article-digest.md');
+}
