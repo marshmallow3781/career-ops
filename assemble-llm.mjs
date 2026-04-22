@@ -5,6 +5,10 @@
  *   1. classifyArchetype(jd)         → "frontend" | "backend" | ...
  *   2. pickBullets(pool, jd, tier)   → selected bullets (per company)
  *   3. writeSummary(profile, jd)     → Professional Summary text
+ *
+ * Response parsing is deliberately lenient — some models (MiniMax, open-weight
+ * models via OpenAI-compat proxies) prefix their answers with reasoning. We
+ * extract the structured answer from whatever prose envelope they wrap it in.
  */
 
 import { Anthropic } from '@anthropic-ai/sdk';
@@ -15,38 +19,128 @@ export function defaultClient() {
   return new Anthropic();
 }
 
+// ── Lenient parsing helpers ─────────────────────────────────────────
+
+const VALID_ARCHETYPES = ['frontend', 'backend', 'infra', 'machine_learning', 'fullstack'];
+
+const ARCHETYPE_ALIASES = {
+  machine_learning: ['machine_learning', 'machine learning', 'machine-learning', 'ml/ai', 'ai/ml', 'ml platform', 'ml engineer', 'ml engineering'],
+  frontend:         ['frontend', 'front-end', 'front end', 'ui engineer', 'client-side'],
+  backend:          ['backend', 'back-end', 'back end', 'server-side'],
+  infra:            ['infra', 'infrastructure', 'devops', 'sre', 'platform engineer', 'site reliability'],
+  fullstack:        ['fullstack', 'full-stack', 'full stack'],
+};
+
+/**
+ * Extract text from a model response that may contain extended-thinking blocks.
+ * MiniMax-M2.7 (and Anthropic extended-thinking) return:
+ *   content: [{type: 'thinking', thinking: '...'}, {type: 'text', text: '...'}]
+ * Standard responses return:
+ *   content: [{type: 'text', text: '...'}]
+ * We pick only the 'text'-bearing blocks and concatenate.
+ */
+function extractResponseText(response) {
+  const content = response?.content || [];
+  if (!Array.isArray(content)) return '';
+  const texts = [];
+  for (const block of content) {
+    if (block?.text && typeof block.text === 'string') {
+      texts.push(block.text);
+    }
+  }
+  return texts.join('\n').trim();
+}
+
+function findArchetypeInText(text) {
+  const lc = text.toLowerCase();
+  let best = null;
+  let bestIndex = Infinity;
+  for (const [canonical, aliases] of Object.entries(ARCHETYPE_ALIASES)) {
+    for (const alias of aliases) {
+      const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(`\\b${escaped}\\b`);
+      const m = lc.search(re);
+      if (m !== -1 && m < bestIndex) {
+        best = canonical;
+        bestIndex = m;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Extract a JSON object from potentially-wrapped LLM output.
+ * Handles: raw JSON, ```json code fences```, JSON after prose prefix.
+ */
+function extractJson(text) {
+  if (!text || typeof text !== 'string') return null;
+  // Try: ```json ... ``` or ``` ... ``` code fence
+  const fenceMatch = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+  if (fenceMatch) {
+    try { return JSON.parse(fenceMatch[1]); } catch { /* fall through */ }
+  }
+
+  // Try: greedy first-brace-to-last-brace
+  const greedy = text.match(/\{[\s\S]*\}/);
+  if (greedy) {
+    try { return JSON.parse(greedy[0]); } catch { /* fall through */ }
+  }
+
+  // Try: find all balanced-ish top-level objects and attempt each
+  const candidates = [];
+  let depth = 0, start = -1;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') { if (depth === 0) start = i; depth++; }
+    else if (text[i] === '}') { depth--; if (depth === 0 && start !== -1) { candidates.push(text.slice(start, i + 1)); start = -1; } }
+  }
+  for (const c of candidates) {
+    try { return JSON.parse(c); } catch { /* try next */ }
+  }
+
+  return null;
+}
+
+// ── LLM-facing functions ────────────────────────────────────────────
+
 export async function classifyArchetype(jdText, client = defaultClient()) {
   const response = await client.messages.create({
     model: DEFAULT_MODEL,
     max_tokens: 50,
-    system: 'You classify job descriptions into one archetype. Return ONLY one word.',
+    system: 'You are a strict classifier. Output EXACTLY one word from this list and NOTHING ELSE: frontend, backend, infra, machine_learning, fullstack. No explanation, no reasoning, no punctuation, no quotes, no markdown.',
     messages: [{
       role: 'user',
       content: `Classify this JD into exactly one of: frontend, backend, infra, machine_learning, fullstack.
-Reply with only the word, no punctuation.
+
+Output ONLY the single word. Do not explain.
 
 JD:
 ${jdText.slice(0, 4000)}`,
     }],
   });
-  const text = response.content[0].text.trim().toLowerCase();
-  const valid = ['frontend', 'backend', 'infra', 'machine_learning', 'fullstack'];
-  if (!valid.includes(text)) {
-    throw new Error(`classifyArchetype: invalid response "${text}"`);
+  const raw = extractResponseText(response);
+  if (!raw) {
+    console.error('[assemble-llm] Empty/unexpected response shape:', JSON.stringify(response).slice(0, 400));
   }
-  return text;
+  const trimmed = raw.trim().toLowerCase();
+
+  // Strict path: the whole response is exactly one archetype word
+  if (VALID_ARCHETYPES.includes(trimmed)) return trimmed;
+
+  // Lenient path: search the response for the first archetype keyword/alias
+  const found = findArchetypeInText(raw);
+  if (found) {
+    console.error(`[classifyArchetype] Model prose-wrapped answer; extracted "${found}" from response`);
+    return found;
+  }
+
+  throw new Error(`classifyArchetype: could not extract archetype from response "${raw.slice(0, 200)}"`);
 }
 
 /**
  * Given a candidate pool of bullets for ONE company and a JD summary, ask the LLM
  * to pick the top N most relevant. The LLM may make light ATS-friendly rephrasing
  * but cannot invent bullets.
- *
- * @param {Array<{text, sourcePath, sourceLine}>} pool
- * @param {string} jdText
- * @param {number} n — how many to pick
- * @param {object} client — Anthropic client (injectable for tests)
- * @returns {Promise<Array<{text, sourcePath, sourceLine}>>}
  */
 export async function pickBullets(pool, jdText, n, client = defaultClient(), exclude = []) {
   if (pool.length === 0) return [];
@@ -60,13 +154,16 @@ export async function pickBullets(pool, jdText, n, client = defaultClient(), exc
 
   const response = await client.messages.create({
     model: DEFAULT_MODEL,
-    max_tokens: 1000,
-    system: 'You pick the most relevant resume bullets for a job description. Return JSON only.',
+    max_tokens: 1500,
+    system: 'You pick the most relevant resume bullets for a job description. Your response MUST be a single valid JSON object and NOTHING ELSE. No prose before or after. No markdown code fences. Just raw JSON.',
     messages: [{
       role: 'user',
       content: `Pick the ${n} bullets most relevant to this JD. You may slightly rephrase to inject JD keywords (max 15% length change), but do NOT invent content.${excludeNote}
 
-Return JSON: {"selected": [{"index": <int>, "text": "<original or rephrased>"}, ...]}
+Output EXACTLY this JSON shape and nothing else:
+{"selected": [{"index": <int>, "text": "<original or rephrased>"}, ...]}
+
+Do not add any text before or after the JSON. Do not wrap in markdown.
 
 JD:
 ${jdText.slice(0, 4000)}
@@ -75,14 +172,22 @@ BULLETS:
 ${numbered}`,
     }],
   });
-  const text = response.content[0].text.trim();
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error(`pickBullets: no JSON in response: ${text.slice(0, 200)}`);
-  const parsed = JSON.parse(jsonMatch[0]);
+  const raw = extractResponseText(response);
+  if (!raw) {
+    console.error('[assemble-llm] Empty/unexpected response shape:', JSON.stringify(response).slice(0, 400));
+  }
+  const parsed = extractJson(raw);
+  if (!parsed) {
+    throw new Error(`pickBullets: no JSON in response:\n${raw.slice(0, 500)}`);
+  }
+  if (!Array.isArray(parsed.selected)) {
+    throw new Error(`pickBullets: JSON missing "selected" array: ${JSON.stringify(parsed).slice(0, 200)}`);
+  }
   return parsed.selected.map(s => {
-    const original = filteredPool[s.index];
-    if (!original) throw new Error(`pickBullets: invalid index ${s.index}`);
-    return { ...original, text: s.text };
+    const idx = typeof s.index === 'number' ? s.index : parseInt(s.index, 10);
+    const original = filteredPool[idx];
+    if (!original) throw new Error(`pickBullets: invalid index ${s.index} (pool size ${filteredPool.length})`);
+    return { ...original, text: s.text || original.text };
   });
 }
 
@@ -91,11 +196,13 @@ export async function writeSummary(profile, jdText, client = defaultClient()) {
   const exitStory = profile.narrative?.exit_story || '';
   const response = await client.messages.create({
     model: DEFAULT_MODEL,
-    max_tokens: 200,
-    system: 'You write a 3-4 line Professional Summary section for a resume.',
+    max_tokens: 300,
+    system: 'You write a concise 3-4 sentence Professional Summary for a resume. Output ONLY the summary text. No preamble like "Here is the summary:". No markdown. No quotes wrapping the output.',
     messages: [{
       role: 'user',
       content: `Write a Professional Summary (3-4 sentences, dense with JD keywords) given the candidate's headline and the JD. Do NOT invent skills.
+
+Output ONLY the summary text. No preamble. No markdown.
 
 CANDIDATE HEADLINE: ${headline}
 EXIT STORY: ${exitStory}
@@ -104,5 +211,10 @@ JD:
 ${jdText.slice(0, 4000)}`,
     }],
   });
-  return response.content[0].text.trim();
+  let text = extractResponseText(response);
+  // Strip common wrapper patterns
+  text = text.replace(/^(here['']?s? (is )?(the|a|your) (professional )?summary[:\s]*)/i, '');
+  text = text.replace(/^```(?:markdown)?\s*/, '').replace(/\s*```$/, '');
+  text = text.replace(/^["']|["']$/g, '');  // strip surrounding quotes
+  return text.trim();
 }

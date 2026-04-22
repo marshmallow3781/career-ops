@@ -10,6 +10,7 @@
  *   .cv-tailored-meta.json   (debug: pools, scores, tier decisions)
  */
 
+import 'dotenv/config';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
