@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import {
   loadConfig, loadAllSources, validateConsistency, sortCompanies,
   extractKeywords, expandSynonyms, scoreBullet, assignTier, renderTailored,
+  computeSkillsBonus, deriveSignals,
 } from '../assemble-core.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -106,4 +107,52 @@ test('e2e: backend JD pulls bullets from acme + globex backend, initech as light
   // → no facet file matches → empty pool → would be stub, but tier_floor=light → light
   assert.equal(companies[2].dir, 'initech');
   assert.equal(companies[2].tier, 'light');
+});
+
+test('e2e regression: Instacart ML/AI Platform JD surfaces Pixel SDK bullet', async () => {
+  // Locks the fix for the Pixel SDK regression — on the Instacart ML/AI
+  // Platform JD, the TikTok Pixel SDK bullet (score 3 on exact match)
+  // was being truncated out of the pool before the LLM saw it. Fix combines:
+  // plural stemming, per-file skills bonus, looser truncation, expanded synonyms.
+  //
+  // Uses the REAL config + experience_source (not test fixtures) because the
+  // bug depends on the actual bullet counts and frontmatter structure. LLM
+  // is NOT invoked here — we verify the pool contains Pixel SDK via the
+  // scoring logic alone.
+  const jdPath = resolve(__dirname, '../__fixtures__/jds/instacart-senior-engineer-ml-ai-platform.md');
+  const jdText = readFileSync(jdPath, 'utf-8');
+  const sourcesRoot = resolve(__dirname, '../experience_source');
+  const sources = loadAllSources(sourcesRoot);
+
+  let keywords = extractKeywords(jdText);
+  keywords = expandSynonyms(keywords, resolve(__dirname, '../config/synonyms.yml'));
+
+  // Build the TikTok pool with the new scoring logic
+  const tiktokFiles = sources['tiktok-us'];
+  assert.ok(tiktokFiles, 'experience_source/tiktok-us must exist for this regression test');
+  const pool = [];
+  for (const f of tiktokFiles) {
+    const skillsBonus = computeSkillsBonus(f.skills, keywords);
+    for (const b of f.bullets) {
+      const baseScore = scoreBullet(b.text, keywords);
+      const score = baseScore + skillsBonus;
+      if (score >= 1) pool.push({ text: b.text, score });
+    }
+  }
+  pool.sort((a, b) => b.score - a.score);
+
+  // With truncation = max(n*4, 15) and n=4, top 16 bullets go to LLM
+  const truncated = pool.slice(0, Math.max(4 * 4, 15));
+  const hasPixelSdk = truncated.some(b =>
+    /(pixel sdk|signal[- ]collection (platform|sdk))/i.test(b.text)
+  );
+  assert.ok(hasPixelSdk,
+    `Pixel SDK bullet must reach the LLM pool (top 16 of ${pool.length}). Top 5 by score:\n` +
+    truncated.slice(0, 5).map(b => `  [${b.score}] ${b.text.slice(0, 80)}`).join('\n')
+  );
+
+  // Also verify signal detection fires correctly on this JD
+  const signals = deriveSignals(jdText);
+  assert.ok(signals.has('sdk'), 'sdk signal must fire on Instacart JD');
+  assert.ok(signals.has('platform'), 'platform signal must fire on Instacart JD');
 });
