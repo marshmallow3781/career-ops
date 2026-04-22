@@ -13,8 +13,9 @@ The portfolio that goes with this system is also open source: [cv-santiago](http
 There are two layers. Read `DATA_CONTRACT.md` for the full list.
 
 **User Layer (NEVER auto-updated, personalization goes HERE):**
-- `cv.md`, `config/profile.yml`, `modes/_profile.md`, `article-digest.md`, `portals.yml`
+- `experience_source/*`, `config/profile.yml`, `modes/_profile.md`, `article-digest.md`, `portals.yml`
 - `data/*`, `reports/*`, `output/*`, `interview-prep/*`
+- (Note: `cv.md` does NOT exist in this fork — see "CV Source of Truth" below.)
 
 **System Layer (auto-updatable, DON'T put user data here):**
 - `modes/_shared.md`, `modes/oferta.md`, all other modes
@@ -57,7 +58,12 @@ AI-powered job search automation built on Claude Code: pipeline tracking, offer 
 | `templates/cv-template.tex` | LaTeX/Overleaf template for CVs |
 | `generate-pdf.mjs` | Playwright: HTML to PDF |
 | `generate-latex.mjs` | LaTeX CV validator + pdflatex compiler |
-| `article-digest.md` | Compact proof points from portfolio (optional) |
+| `experience_source/{company}/{facet}.md` | Per-company × per-facet structured experience source |
+| `assemble-cv.mjs` | Tailored CV assembler (run before any JD-driven mode) |
+| `validate-cv.mjs` | Structural validator gate |
+| `cv.tailored.md` | Per-JD assembly output (gitignored, regenerated each run) |
+| `.cv-tailored-meta.json` | Debug sidecar (pools, tiers, archetype decisions) |
+| `article-digest.md` | Non-company proof points (open-source, blog posts, talks, side projects) |
 | `interview-prep/story-bank.md` | Accumulated STAR+R stories across evaluations |
 | `interview-prep/{company}-{role}.md` | Company-specific interview intel reports |
 | `analyze-patterns.mjs` | Pattern analysis script (JSON output) |
@@ -121,7 +127,7 @@ When using the [Gemini CLI](https://github.com/google-gemini/gemini-cli), the fo
 
 **Before doing ANYTHING else, check if the system is set up.** Run these checks silently every time a session starts:
 
-1. Does `cv.md` exist?
+1. Does `experience_source/` exist with at least one company directory containing a facet `.md` file?
 2. Does `config/profile.yml` exist (not just profile.example.yml)?
 3. Does `modes/_profile.md` exist (not just _profile.template.md)?
 4. Does `portals.yml` exist (not just templates/portals.example.yml)?
@@ -130,16 +136,17 @@ If `modes/_profile.md` is missing, copy from `modes/_profile.template.md` silent
 
 **If ANY of these is missing, enter onboarding mode.** Do NOT proceed with evaluations, scans, or any other mode until the basics are in place. Guide the user step by step:
 
-#### Step 1: CV (required)
-If `cv.md` is missing, ask:
-> "I don't have your CV yet. You can either:
-> 1. Paste your CV here and I'll convert it to markdown
-> 2. Paste your LinkedIn URL and I'll extract the key info
-> 3. Tell me about your experience and I'll draft a CV for you
->
-> Which do you prefer?"
+#### Step 1: Experience source (required)
+If `experience_source/` is empty or missing, ask:
+> "I don't have your experience yet. In this fork, your CV lives as one
+> file per company × per technical facet (frontend / backend / infra /
+> machine_learning). Tell me about a recent role and I'll draft the first
+> file at `experience_source/{company}/{facet}.md`."
 
-Create `cv.md` from whatever they provide. Make it clean markdown with standard sections (Summary, Experience, Projects, Education, Skills).
+For each role they describe, create `experience_source/{company-slug}/{facet}.md`
+with frontmatter (company / role / location / start / end / facet) and at
+least one `## Bullets` entry. Multiple facets per company are encouraged
+when the role spanned multiple stacks (e.g. fullstack → frontend.md + backend.md).
 
 #### Step 2: Profile (required)
 If `config/profile.yml` is missing, copy from `config/profile.example.yml` and then ask:
@@ -261,9 +268,23 @@ Default modes are in `modes/` (English). Additional language-specific modes are 
 
 ### CV Source of Truth
 
-- `cv.md` in project root is the canonical CV
-- `article-digest.md` has detailed proof points (optional)
+- `experience_source/{company}/{facet}.md` is the canonical source. **`cv.md` does NOT exist in this fork.**
+- `cv.tailored.md` is generated per-JD by `assemble-cv.mjs`. Modes with JD context read it.
+- `article-digest.md` holds non-company proof points (open-source, articles, talks).
 - **NEVER hardcode metrics** -- read them from these files at evaluation time
+
+### Assembly First Rule (this fork)
+
+Before invoking any mode that needs a CV (`oferta`, `pdf`, `latex`, `apply`,
+`contacto`, `deep`), the auto-pipeline runs:
+
+  Paso 0.5: `node assemble-cv.mjs --jd=jds/{slug}.md`
+  Paso 0.6: `node validate-cv.mjs cv.tailored.md`  (with up to 3 retries)
+
+These produce `cv.tailored.md` which all downstream modes consume. If you
+invoke a CV-needing mode manually without going through auto-pipeline, you
+MUST run those two commands yourself first or the mode will read a stale or
+missing `cv.tailored.md`.
 
 ---
 

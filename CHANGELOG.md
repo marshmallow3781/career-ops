@@ -1,5 +1,34 @@
 # Changelog
 
+## fork-v0.1.0 — 2026-04-21 (marshmallow3781/career-ops)
+
+Personal fork: experience-source assembly. Not pushed upstream.
+
+### BREAKING
+
+- Removed `cv.md` and `cv-sync-check.mjs` — CV content now lives in
+  per-company × per-facet files at `experience_source/{company}/{facet}.md`
+- All JD-driven modes (`oferta`, `pdf`, `latex`, `apply`, `contacto`,
+  `deep`, `followup`) now read `cv.tailored.md` instead of `cv.md`
+- `auto-pipeline.md` adds Paso 0.5 (assemble) and Paso 0.6 (validate)
+  before evaluation; PDF generation is gated by validator pass
+
+### Features
+
+- New `assemble-cv.mjs` CLI: deterministic candidate-pool selection +
+  LLM-driven bullet picking + retry loop on validation failure
+- New `validate-cv.mjs` with three structural checks: company coverage,
+  bullet provenance (fuzzy-match against source files), chronological order
+- Hardcoded tier system: full / light / stub based on candidate pool size,
+  with per-company `tier_floor` override in `config/profile.yml`
+- Article-digest entries auto-merged into Projects pool, archetype-filtered
+- LaTeX path also consumes `cv.tailored.md`
+- 43 unit + E2E tests (`tests/*.test.mjs`), integrated into `test-all.mjs`
+
+### Dependencies
+
+- Added: `@anthropic-ai/sdk@^0.32.1`
+
 ## [1.5.0](https://github.com/santifer/career-ops/compare/v1.4.0...v1.5.0) (2026-04-14)
 
 

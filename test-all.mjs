@@ -117,6 +117,33 @@ try {
   fail(`Liveness classification tests crashed: ${e.message}`);
 }
 
+// ── 3.5 UNIT + E2E TESTS (assemble + validate) ──────────────────
+
+console.log('\n3.5. Unit + E2E tests (assemble + validate)');
+
+const testFiles = readdirSync(join(ROOT, 'tests'))
+  .filter(f => f.endsWith('.test.mjs'))
+  .map(f => join('tests', f));
+
+if (testFiles.length === 0) {
+  warn('No test files found in tests/');
+} else {
+  const testResult = run('node', ['--test', ...testFiles]);
+  if (testResult !== null) {
+    const passMatch = testResult.match(/# pass (\d+)/);
+    const failMatch = testResult.match(/# fail (\d+)/);
+    const passCount = passMatch ? Number(passMatch[1]) : 0;
+    const failCount = failMatch ? Number(failMatch[1]) : 0;
+    if (failCount === 0) {
+      pass(`All assemble/validate tests pass (${passCount}/${passCount})`);
+    } else {
+      fail(`${failCount} test(s) failed (passed: ${passCount})`);
+    }
+  } else {
+    fail('Test runner crashed');
+  }
+}
+
 // ── 4. DASHBOARD BUILD ──────────────────────────────────────────
 
 if (!QUICK) {
@@ -142,6 +169,9 @@ const systemFiles = [
   'modes/oferta.md', 'modes/pdf.md', 'modes/scan.md',
   'templates/states.yml', 'templates/cv-template.html',
   '.claude/skills/career-ops/SKILL.md',
+  'assemble-cv.mjs', 'assemble-core.mjs', 'assemble-llm.mjs',
+  'validate-cv.mjs', 'validate-core.mjs',
+  'config/synonyms.yml',
 ];
 
 for (const f of systemFiles) {

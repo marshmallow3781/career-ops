@@ -13,7 +13,7 @@
     "pdf": "node generate-pdf.mjs",
     "rollback": "node update-system.mjs rollback",
     "scan": "node scan.mjs",
-    "test": "node --test tests/",
+    "test": "node --test tests/*.test.mjs",
     "update": "node update-system.mjs apply",
     "update:check": "node update-system.mjs check",
     "validate-cv": "node validate-cv.mjs",
