@@ -61,3 +61,24 @@ export function applyTitleFilter(title, filter, dealBreakers) {
   const hasDealBreaker = (dealBreakers || []).some(k => lc.includes(k.toLowerCase()));
   return hasPositive && !hasNegative && !hasDealBreaker;
 }
+
+/**
+ * Check whether a company is on the user's blacklist.
+ * Matching: normalize both sides via normalizeCompany (lowercase + kebab-case),
+ * then substring match. "Walmart" entry matches "walmart", "walmart-labs",
+ * "walmart-connect". Case-insensitive.
+ *
+ * @param {string} companyName — the candidate job's company field
+ * @param {string[]} blacklist — entries from profile.yml target_roles.company_blacklist
+ * @returns {boolean} true if the company should be dropped from the digest
+ */
+export function isCompanyBlacklisted(companyName, blacklist) {
+  if (!companyName || !blacklist || blacklist.length === 0) return false;
+  const normalized = normalizeCompany(companyName);
+  if (!normalized) return false;
+  return blacklist.some(entry => {
+    const entryNormalized = normalizeCompany(entry);
+    if (!entryNormalized) return false;
+    return normalized === entryNormalized || normalized.includes(entryNormalized);
+  });
+}
