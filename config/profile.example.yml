@@ -23,16 +23,15 @@ target_roles:
     - "Staff ML Engineer"
 
   # (autopilot) Multi-facet candidates: list every archetype you're open to.
-  # Note: machine_learning = classical ML (XGBoost, feature stores, rec systems).
-  # ai_engineer = LLM/agent/RAG engineering (LangChain, eval harnesses).
-  # ai_native = product role at an AI-native company (LLM-first products).
+  # Note: AI / AI-Native / LLM Engineer roles are typically fullstack + LLM
+  # combinations — they get classified as "fullstack" and scored on the
+  # combination of candidate's fullstack (frontend + backend) and LLM work.
+  # No separate ai_engineer archetype needed.
   archetypes_of_interest:
     - frontend
     - backend
     - infra
     - machine_learning
-    - ai_engineer
-    - ai_native
     - fullstack
 
   seniority_min: "Mid-Senior"

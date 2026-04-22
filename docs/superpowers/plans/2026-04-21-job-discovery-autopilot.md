@@ -1934,6 +1934,16 @@ Given the candidate's profile and a job description, output JSON with:
 - score: integer 0-10 — how well candidate matches THIS archetype
 - reason: one-line ≤100 chars justifying the score
 
+ARCHETYPE CLASSIFICATION NOTES:
+- "AI Engineer" / "AI-Native Engineer" / "LLM Engineer" / "Agent Engineer" / "Applied AI"
+  roles → classify as "fullstack" (these are typically fullstack + LLM combinations).
+  Score on the combination of candidate's fullstack breadth AND their LLM/agent experience.
+- "ML Engineer" (classical ML, XGBoost, feature stores, recommender systems) → "machine_learning".
+- "Platform Engineer" / "SRE" / "DevOps" / "Data Platform" → "infra".
+- "Backend Engineer" (distributed systems, APIs) → "backend".
+- "Frontend Engineer" (React, UI, design systems) → "frontend".
+- "Fullstack Engineer" without LLM/AI focus → "fullstack".
+
 Scoring rubric:
  10  Outstanding match: recent experience maps directly, senior fit.
  8-9 Strong match: most requirements met, a few might need reframing.
@@ -1946,6 +1956,7 @@ IMPORTANT:
 - Junior/intern/entry-level = 0-2 regardless of stack match.
 - Contract/C2C/temporary = 0-2 (candidate wants full-time).
 - Non-engineering (legal/tax/HR) = 0-2.
+- Test Engineer / QA roles = 0-2 (candidate is not looking for QA).
 
 Output ONLY the JSON object. No preamble, no markdown.`;
 
