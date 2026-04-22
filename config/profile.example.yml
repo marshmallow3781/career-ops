@@ -135,6 +135,8 @@ archetype_defaults:
   backend:          { top_bullets_full: 5, top_projects: 4 }
   infra:            { top_bullets_full: 4, top_projects: 3 }
   machine_learning: { top_bullets_full: 5, top_projects: 4 }
+  ml_platform:      { top_bullets_full: 5, top_projects: 4 }
+  applied_ai:       { top_bullets_full: 4, top_projects: 3 }
   fullstack:        { top_bullets_full: 5, top_projects: 4 }
 
 tier_rules:
