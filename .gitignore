@@ -31,6 +31,7 @@ data/digest-history/
 # User config and customization (never auto-updated)
 config/profile.yml
 portals.yml
+!__fixtures__/**/portals.yml
 modes/_profile.md
 .update-dismissed
 .update-lock

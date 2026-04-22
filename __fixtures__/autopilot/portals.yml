@@ -1,0 +1,12 @@
+title_filter:
+  positive:
+    - "Backend"
+    - "Infrastructure"
+    - "Platform"
+    - "Data Engineer"
+    - "Data Platform"
+    - "ML"
+    - "Machine Learning"
+  negative:
+    - "Senior Manager"
+    - "Sales Engineer"
