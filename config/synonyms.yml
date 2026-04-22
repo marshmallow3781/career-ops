@@ -10,7 +10,7 @@ groups:
   - canonical: vector_db
     aliases: [vector database, vector store, embeddings store, semantic search index, pinecone, weaviate, qdrant, chroma]
   - canonical: mlops
-    aliases: [ml ops, ml-ops, ml platform, ml infra, ml infrastructure, model ops]
+    aliases: [ml ops, ml-ops, ml platform, ml infra, ml infrastructure, model ops, mlflow, kubeflow, sagemaker, model registry, model versioning, pipeline orchestration, experiment tracking, model monitoring, feature registry]
   - canonical: feature_store
     aliases: [feature store, feature platform, online feature serving]
   - canonical: kubernetes
@@ -26,8 +26,20 @@ groups:
   - canonical: postgres
     aliases: [postgresql, pg]
   - canonical: observability
-    aliases: [monitoring, metrics, traces, logging, telemetry]
+    aliases: [opentelemetry, grafana, prometheus, datadog, monitoring, metrics, tracing, distributed tracing, logging, alerting, slo, sli, apm, dashboard, incident response]
   - canonical: distributed_systems
     aliases: [distributed system, distributed compute, distributed training]
   - canonical: design_system
     aliases: [design systems, component library, ui library]
+  - canonical: sdk
+    aliases: [sdks, software development kit, client library, developer api, api client, shared library, toolkit, internal sdk, platform sdk, developer tooling]
+  - canonical: platform_engineering
+    aliases: [platform, internal platform, developer platform, internal tooling, shared infrastructure, self-serve platform, core infrastructure, platform team, common services, shared services, service platform, enablement]
+  - canonical: training_infrastructure
+    aliases: [training platform, training infra, training pipeline, training workflow, training orchestration, distributed training, gpu training, multi-gpu, multi-node training, hyperparameter tuning, hpo, fine-tuning, fine tuning]
+  - canonical: model_serving
+    aliases: [model serving, online inference, real-time inference, batch inference, prediction service, scoring service, serving layer, model endpoint, deployment endpoint, ray serve, torchserve, tensorflow serving, triton, vllm, seldon, bentoml]
+  - canonical: experimentation
+    aliases: [a/b test, a/b testing, experimentation, online experiment, offline evaluation, model evaluation, canary, shadow testing, feature flag, holdout, lift, statistical significance]
+  - canonical: ai_agents
+    aliases: [langchain, langgraph, rag, agentic, llm agent, tool calling, multi-agent, retrieval augmented generation, llamaindex, agent orchestration]
