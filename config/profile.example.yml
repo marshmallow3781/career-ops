@@ -37,8 +37,8 @@ target_roles:
   seniority_min: "Mid-Senior"
   seniority_max: "Staff"
   # Hard-filter strings (applied in Stage 1, free).
-  # Note: Intern/Junior/Entry Level are handled by Haiku's rubric (0-2 score),
-  # so they appear in the "Skip" bucket of the digest rather than being dropped.
+  # Note: candidate is OK with junior/entry/intern roles if the stack matches;
+  # Haiku scores them on stack fit without downranking for seniority.
   deal_breakers:
     - "Test"
     - "Contract"

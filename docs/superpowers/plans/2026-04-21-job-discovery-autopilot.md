@@ -1953,10 +1953,11 @@ Scoring rubric:
 
 IMPORTANT:
 - Score fairly across archetypes — don't penalize ML jobs for not being backend.
-- Junior/intern/entry-level = 0-2 regardless of stack match.
 - Contract/C2C/temporary = 0-2 (candidate wants full-time).
 - Non-engineering (legal/tax/HR) = 0-2.
 - Test Engineer / QA roles = 0-2 (candidate is not looking for QA).
+- Junior/Entry/Intern engineer roles are acceptable — score them on stack match
+  like any other role; don't downrank for seniority.
 
 Output ONLY the JSON object. No preamble, no markdown.`;
 

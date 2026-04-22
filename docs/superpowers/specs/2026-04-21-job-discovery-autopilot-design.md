@@ -710,10 +710,10 @@ Score on candidate's strength in the job's archetype:
 
 IMPORTANT:
 - Score fairly across archetypes. Don't penalize ML jobs for not being backend.
-- Be strict about seniority. Junior/intern/entry-level = score 0-2 regardless
-  of stack match.
 - Non-engineering roles (legal/tax/HR) with keyword-matching titles = 0-2.
 - Contract/C2C/temporary roles = score 0-2 (candidate wants full-time).
+- Junior/Entry/Intern engineer roles are ACCEPTABLE — score them on stack match
+  like any other role. Candidate is open to junior roles if the stack aligns.
 
 Output ONLY the JSON object. No preamble, no markdown.
 ```
