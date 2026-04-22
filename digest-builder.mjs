@@ -152,3 +152,95 @@ export function buildCandidateSummary(profile, sources) {
 
   return lines.join('\n');
 }
+
+export const SYSTEM_PROMPT = `You are a job-fit pre-filter for a multi-facet candidate who is open to roles in FRONTEND, BACKEND, INFRA, MACHINE_LEARNING, or FULLSTACK.
+
+Given the candidate's profile and a job description, output JSON with:
+- archetype: one of "frontend" | "backend" | "infra" | "machine_learning" | "fullstack"
+- score: integer 0-10 — how well candidate matches THIS archetype
+- reason: one-line ≤100 chars justifying the score
+
+ARCHETYPE CLASSIFICATION NOTES:
+- "AI Engineer" / "AI-Native Engineer" / "LLM Engineer" / "Agent Engineer" / "Applied AI"
+  roles → classify as "fullstack" (these are typically fullstack + LLM combinations).
+  Score on the combination of candidate's fullstack breadth AND their LLM/agent experience.
+- "ML Engineer" (classical ML, XGBoost, feature stores, recommender systems) → "machine_learning".
+- "Platform Engineer" / "SRE" / "DevOps" / "Data Platform" → "infra".
+- "Backend Engineer" (distributed systems, APIs) → "backend".
+- "Frontend Engineer" (React, UI, design systems) → "frontend".
+- "Fullstack Engineer" without LLM/AI focus → "fullstack".
+
+Scoring rubric:
+ 10  Outstanding match: recent experience maps directly, senior fit.
+ 8-9 Strong match: most requirements met, a few might need reframing.
+ 6-7 Decent match: core overlap but notable gaps.
+ 4-5 Weak match: partial overlap or wrong seniority.
+ 0-3 Not a match: wrong role, seniority, or discipline (e.g., legal role with "Infrastructure" in title).
+
+IMPORTANT:
+- Score fairly across archetypes — don't penalize ML jobs for not being backend.
+- Contract/C2C/temporary = 0-2 (candidate wants full-time).
+- Non-engineering (legal/tax/HR) = 0-2.
+- Test Engineer / QA roles = 0-2 (candidate is not looking for QA).
+- Junior/Entry/Intern engineer roles are acceptable — score them on stack match
+  like any other role; don't downrank for seniority.
+
+Output ONLY the JSON object. No preamble, no markdown.`;
+
+/**
+ * Pre-filter one job via Haiku.
+ * @returns {Promise<{archetype, score, reason}>} where score is integer 0-10 or null
+ */
+export async function preFilterJob(job, systemPrompt, candidateSummary, client) {
+  const userMessage =
+    `<job>\nTitle: ${job.title || ''}\nCompany: ${job.company || ''}\n` +
+    `Location: ${job.location || ''}\nDescription:\n` +
+    `${(job.description || '').slice(0, 3000)}\n</job>\n\nReturn JSON.`;
+
+  let response;
+  try {
+    response = await client.messages.create({
+      model: HAIKU_MODEL,
+      max_tokens: 120,
+      temperature: 0,
+      system: [
+        { type: 'text', text: systemPrompt || SYSTEM_PROMPT,
+          cache_control: { type: 'ephemeral', ttl: '1h' } },
+        { type: 'text', text: candidateSummary,
+          cache_control: { type: 'ephemeral', ttl: '1h' } },
+      ],
+      messages: [{ role: 'user', content: userMessage }],
+    });
+  } catch (e) {
+    return { archetype: 'unknown', score: null, reason: `prefilter unavailable: ${(e.message || '').slice(0, 60)}` };
+  }
+
+  const text = (response.content?.[0]?.text || '').trim();
+
+  // Try strict JSON parse first; fall back to regex extract
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    const m = text.match(/\{[^}]+\}/);
+    if (m) {
+      try { parsed = JSON.parse(m[0]); } catch { /* ignore */ }
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    return { archetype: 'unknown', score: null, reason: 'prefilter parse failed' };
+  }
+
+  // Validate + clamp
+  const validArchetypes = ['frontend', 'backend', 'infra', 'machine_learning', 'fullstack'];
+  const archetype = validArchetypes.includes(parsed.archetype) ? parsed.archetype : 'unknown';
+  let score = parsed.score;
+  if (typeof score !== 'number') score = null;
+  else if (score < 0) score = 0;
+  else if (score > 10) score = 10;
+  else score = Math.round(score);
+  const reason = typeof parsed.reason === 'string' ? parsed.reason.slice(0, 100) : '';
+
+  return { archetype, score, reason };
+}

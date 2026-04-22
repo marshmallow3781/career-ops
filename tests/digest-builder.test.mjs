@@ -128,3 +128,48 @@ test('buildCandidateSummary: includes company+role lines from sources', () => {
   assert.match(summary, /Software Engineer/);
   assert.match(summary, /Airflow/);
 });
+
+import { preFilterJob } from '../digest-builder.mjs';
+
+function makeMockHaiku(fixedResponse) {
+  return {
+    messages: {
+      create: async () => ({
+        content: [{ text: fixedResponse }],
+      }),
+    },
+  };
+}
+
+test('preFilterJob: parses valid JSON response', async () => {
+  const mock = makeMockHaiku('{"archetype":"backend","score":8,"reason":"Go + Kafka match"}');
+  const job = { title: 'Senior Backend Engineer', company: 'Acme', location: 'SF', description: 'Go, Kafka.' };
+  const result = await preFilterJob(job, 'SYSTEM', 'PROFILE', mock);
+  assert.equal(result.archetype, 'backend');
+  assert.equal(result.score, 8);
+  assert.equal(result.reason, 'Go + Kafka match');
+});
+
+test('preFilterJob: malformed JSON → score=null reason explains', async () => {
+  const mock = makeMockHaiku('not-json-at-all');
+  const job = { title: 'SWE', company: 'X', location: 'Y', description: 'Z' };
+  const result = await preFilterJob(job, '', '', mock);
+  assert.equal(result.score, null);
+  assert.equal(result.archetype, 'unknown');
+  assert.match(result.reason, /parse/i);
+});
+
+test('preFilterJob: clamps score outside 0-10', async () => {
+  const mock = makeMockHaiku('{"archetype":"backend","score":15,"reason":"ok"}');
+  const result = await preFilterJob({ title: 'x', company: 'x', location: 'x', description: 'x' }, '', '', mock);
+  assert.equal(result.score, 10);
+});
+
+test('preFilterJob: API error → score=null unavailable', async () => {
+  const mock = {
+    messages: { create: async () => { throw new Error('rate limit'); } },
+  };
+  const result = await preFilterJob({ title: 'x', company: 'x', location: 'x', description: 'x' }, '', '', mock);
+  assert.equal(result.score, null);
+  assert.match(result.reason, /rate limit|unavailable/);
+});
