@@ -11,7 +11,7 @@ facet: backend
 
 - Built distributed queue handling 10K rps with Kafka and Postgres
 - Migrated monolith to microservices over 6 months, zero customer downtime
-- Designed event sourcing layer for order pipeline, p99 latency 30ms
+- Designed distributed event-driven CDC layer for order pipeline, p99 30ms
 - Led on-call rotation of 8 engineers, halved incident MTTR
 
 ## Projects
