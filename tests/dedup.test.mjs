@@ -70,3 +70,46 @@ test('normalizeTitle: strips " | Company" and " @ Company" suffixes', () => {
     'ml-engineer'
   );
 });
+
+import { computeJdFingerprint } from '../lib/dedup.mjs';
+
+test('computeJdFingerprint: identical text → identical hash', () => {
+  const a = 'We are hiring a Senior Backend Engineer.';
+  const b = 'We are hiring a Senior Backend Engineer.';
+  assert.equal(computeJdFingerprint(a), computeJdFingerprint(b));
+});
+
+test('computeJdFingerprint: whitespace-insensitive', () => {
+  const a = 'We are hiring a Senior Engineer.';
+  const b = 'We  are\nhiring   a\tSenior\n\nEngineer.';
+  assert.equal(computeJdFingerprint(a), computeJdFingerprint(b));
+});
+
+test('computeJdFingerprint: case-insensitive', () => {
+  const a = 'We Are Hiring';
+  const b = 'we are hiring';
+  assert.equal(computeJdFingerprint(a), computeJdFingerprint(b));
+});
+
+test('computeJdFingerprint: punctuation-insensitive', () => {
+  const a = 'Backend Engineer: We are hiring!';
+  const b = 'Backend Engineer We are hiring';
+  assert.equal(computeJdFingerprint(a), computeJdFingerprint(b));
+});
+
+test('computeJdFingerprint: different text → different hash', () => {
+  const a = 'We are hiring backend engineers';
+  const b = 'We are hiring frontend engineers';
+  assert.notEqual(computeJdFingerprint(a), computeJdFingerprint(b));
+});
+
+test('computeJdFingerprint: empty → stable fixed hash', () => {
+  assert.equal(computeJdFingerprint(''), computeJdFingerprint(''));
+  assert.equal(typeof computeJdFingerprint(''), 'string');
+});
+
+test('computeJdFingerprint: returns 64-char hex string (SHA-256)', () => {
+  const fp = computeJdFingerprint('test content');
+  assert.equal(fp.length, 64);
+  assert.match(fp, /^[0-9a-f]{64}$/);
+});
