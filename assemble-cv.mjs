@@ -146,10 +146,12 @@ async function main() {
     }
   }
 
-  // 6. Projects: top-N across all
-  const topProjects = config.archetype_defaults?.[archetype]?.top_projects || 3;
-  allProjects.sort((a, b) => b.score - a.score);
-  const projects = allProjects.slice(0, topProjects);
+  // 6. Projects: DISABLED (user preference — CV has no Personal Projects section).
+  //    We still collect allProjects above for potential future use, but pass an
+  //    empty array to the renderer so no "## Projects" section appears in
+  //    cv.tailored.md — preventing downstream LLM from emitting one in HTML/LaTeX.
+  const projects = [];
+  void allProjects;  // intentional — collected but unused by renderer
 
   // 7. Competencies: skills ∩ keyword set, top 6-8
   const competencies = [...allSkills]

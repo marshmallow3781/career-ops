@@ -32,8 +32,14 @@ The template at `templates/cv-template.tex` uses `{{PLACEHOLDER}}` syntax:
 | `{{GITHUB_DISPLAY}}` | Display text only (no scheme): `github.com/username` |
 | `{{EDUCATION}}` | LaTeX `\resumeSubheading` blocks from `config/profile.yml` (or `cv.tailored.md` Education section if present) |
 | `{{EXPERIENCE}}` | LaTeX `\resumeSubheading` + `\resumeItem` blocks — reordered bullets |
-| `{{PROJECTS}}` | LaTeX `\resumeProjectHeading` + `\resumeItem` blocks — top 3-4 selected |
 | `{{SKILLS}}` | LaTeX `\textbf{Category}{: items}` lines from `cv.tailored.md` Core Competencies |
+
+**IMPORTANT (user preference):** This template intentionally has NO "Personal Projects"
+section. Do NOT synthesize, add, or emit any project-related content — no
+`\resumeProjectHeading`, no `{{PROJECTS}}` placeholder, no "Projects" section header,
+no standalone project descriptions. Personal work and side projects belong in
+`article-digest.md` (which the LLM reads for other modes) but must NOT appear in
+the generated `.tex` output.
 
 ## LaTeX Content Generation Rules
 
@@ -67,18 +73,6 @@ Each role becomes:
         \resumeItem{Bullet text with JD keywords injected}
         ...
       \resumeItemListEnd
-```
-
-### Projects
-
-Each project becomes:
-
-```latex
-\resumeProjectHeading{Project Name \emph{$|$ Affiliation/Context}}{Date}
-\resumeItemListStart
-    \resumeItem{Bullet text}
-    ...
-\resumeItemListEnd
 ```
 
 ### Skills
@@ -118,7 +112,7 @@ All text content MUST be escaped for LaTeX before insertion:
 ## ATS Rules (same as pdf mode)
 
 - Single-column layout (enforced by template)
-- Standard section headers: Education, Work Experience, Personal Projects, Technical Skills
+- Standard section headers: Education, Work Experience, Technical Skills (NO Projects section)
 - UTF-8, machine-readable via `\pdfgentounicode=1`
 - Keywords distributed: first bullet of each role, skills section
 - No images, no graphics, no color in body text

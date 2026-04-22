@@ -18,7 +18,8 @@
 ## Reglas ATS (parseo limpio)
 
 - Layout single-column (sin sidebars, sin columnas paralelas)
-- Headers estándar: "Professional Summary", "Work Experience", "Education", "Skills", "Certifications", "Projects"
+- Headers estándar: "Professional Summary", "Work Experience", "Education", "Skills", "Certifications"
+- **NO "Projects" / "Personal Projects" section** (user preference — removed from template)
 - Sin texto en imágenes/SVGs
 - Sin info crítica en headers/footers del PDF (ATS los ignora)
 - UTF-8, texto seleccionable (no rasterizado)
@@ -42,9 +43,13 @@
 2. Professional Summary (3-4 líneas, keyword-dense)
 3. Core Competencies (6-8 keyword phrases en flex-grid)
 4. Work Experience (cronológico inverso)
-5. Projects (top 3-4 más relevantes)
-6. Education & Certifications
-7. Skills (idiomas + técnicos)
+5. Education & Certifications
+6. Skills (idiomas + técnicos)
+
+**IMPORTANT (user preference):** Do NOT emit a "Projects" / "Personal Projects"
+section. No project descriptions, no project badges, no project-tech lines,
+no `{{SECTION_PROJECTS}}` or `{{PROJECTS}}` placeholder expansion. The template
+HTML already has those elements removed — any LLM-generated HTML must match.
 
 ## Estrategia de keyword injection (ético, basado en verdad)
 
@@ -77,8 +82,6 @@ Usar el template en `cv-template.html`. Reemplazar los placeholders `{{...}}` co
 | `{{COMPETENCIES}}` | `<span class="competency-tag">keyword</span>` × 6-8 |
 | `{{SECTION_EXPERIENCE}}` | Work Experience / Experiencia Laboral |
 | `{{EXPERIENCE}}` | HTML de cada trabajo con bullets reordenados |
-| `{{SECTION_PROJECTS}}` | Projects / Proyectos |
-| `{{PROJECTS}}` | HTML de top 3-4 proyectos |
 | `{{SECTION_EDUCATION}}` | Education / Formación |
 | `{{EDUCATION}}` | HTML de educación |
 | `{{SECTION_CERTIFICATIONS}}` | Certifications / Certificaciones |
@@ -130,7 +133,8 @@ b. `perform-editing-operations` with `find_and_replace_text` for each section:
    - Replace summary text with tailored summary
    - Replace each experience bullet with reordered/rewritten bullets
    - Replace competency/skills text with JD-matched terms
-   - Replace project descriptions with top relevant projects
+   - (If the Canva base design has a Projects section, leave it untouched — we don't populate it.
+     Prefer a base design WITHOUT a Projects section to match the template change.)
 c. **Reflow layout after text replacement:**
    After applying all text replacements, the text boxes auto-resize but neighboring elements stay in place. This causes uneven spacing between work experience sections. Fix this:
    1. Read the updated element positions and dimensions from the `perform-editing-operations` response

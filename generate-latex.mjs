@@ -21,14 +21,12 @@ import { existsSync, mkdirSync } from 'fs';
 const REQUIRED_SECTIONS = [
   '\\\\section{Education}',
   '\\\\section{Work Experience}',
-  '\\\\section{Personal Projects}',
   '\\\\section{Technical Skills}',
 ];
 
 const REQUIRED_COMMANDS = [
   '\\\\resumeSubheading',
   '\\\\resumeItem',
-  '\\\\resumeProjectHeading',
 ];
 
 async function main() {
@@ -82,12 +80,17 @@ async function main() {
   const lines = content.split('\n');
   let resumeItemCount = 0;
   let subheadingCount = 0;
-  let projectHeadingCount = 0;
 
   for (const line of lines) {
     if (/\\resumeItem\{/.test(line)) resumeItemCount++;
     if (/\\resumeSubheading[^C]/.test(line)) subheadingCount++;
-    if (/\\resumeProjectHeading/.test(line)) projectHeadingCount++;
+  }
+
+  // Hard-reject: no Personal Projects section is allowed (user preference)
+  if (/\\section\{Personal Projects\}/.test(content) ||
+      /\\resumeProjectHeading/.test(content) ||
+      /\{\{PROJECTS\}\}/.test(content)) {
+    issues.push('Personal Projects section must NOT be emitted (user preference — removed from template)');
   }
 
   // Check pdfgentounicode
@@ -106,7 +109,6 @@ async function main() {
     counts: {
       resumeItems: resumeItemCount,
       subheadings: subheadingCount,
-      projectHeadings: projectHeadingCount,
     },
     issues,
     valid: issues.length === 0,
