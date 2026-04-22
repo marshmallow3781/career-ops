@@ -35,3 +35,38 @@ test('extractLinkedInId: malformed URL → null', () => {
   assert.equal(extractLinkedInId(''), null);
   assert.equal(extractLinkedInId(null), null);
 });
+
+import { normalizeCompany, normalizeTitle } from '../lib/dedup.mjs';
+
+test('normalizeCompany: basic kebab-case', () => {
+  assert.equal(normalizeCompany('Anthropic'), 'anthropic');
+  assert.equal(normalizeCompany('LinkedIn Corporation'), 'linkedin-corporation');
+});
+
+test('normalizeCompany: strips trademarks, apostrophes, punctuation', () => {
+  assert.equal(normalizeCompany('McDonald\'s, Inc.'), 'mcdonalds-inc');
+  assert.equal(normalizeCompany('AT&T™'), 'att');
+});
+
+test('normalizeCompany: empty/null returns empty string', () => {
+  assert.equal(normalizeCompany(''), '');
+  assert.equal(normalizeCompany(null), '');
+});
+
+test('normalizeTitle: lowercase + kebab-case', () => {
+  assert.equal(
+    normalizeTitle('Staff+ Software Engineer, Data Infrastructure'),
+    'staff-software-engineer-data-infrastructure'
+  );
+});
+
+test('normalizeTitle: strips " | Company" and " @ Company" suffixes', () => {
+  assert.equal(
+    normalizeTitle('Senior Backend Engineer | Anthropic'),
+    'senior-backend-engineer'
+  );
+  assert.equal(
+    normalizeTitle('ML Engineer @ Scale AI'),
+    'ml-engineer'
+  );
+});
