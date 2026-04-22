@@ -48,18 +48,23 @@ ${jdText.slice(0, 4000)}`,
  * @param {object} client — Anthropic client (injectable for tests)
  * @returns {Promise<Array<{text, sourcePath, sourceLine}>>}
  */
-export async function pickBullets(pool, jdText, n, client = defaultClient()) {
+export async function pickBullets(pool, jdText, n, client = defaultClient(), exclude = []) {
   if (pool.length === 0) return [];
-  if (pool.length <= n) return pool;
+  const filteredPool = pool.filter(p => !exclude.some(ex => ex.includes(p.text.slice(0, 40))));
+  if (filteredPool.length <= n) return filteredPool;
 
-  const numbered = pool.map((b, i) => `${i}: ${b.text}`).join('\n');
+  const numbered = filteredPool.map((b, i) => `${i}: ${b.text}`).join('\n');
+  const excludeNote = exclude.length > 0
+    ? `\n\nIMPORTANT: A previous attempt failed validation. Avoid rephrasing too aggressively — keep wording very close to the original bullet text. Bullets that previously failed validation: ${exclude.slice(0, 5).map(e => `"${e.slice(0, 60)}"`).join(', ')}`
+    : '';
+
   const response = await client.messages.create({
     model: DEFAULT_MODEL,
     max_tokens: 1000,
     system: 'You pick the most relevant resume bullets for a job description. Return JSON only.',
     messages: [{
       role: 'user',
-      content: `Pick the ${n} bullets most relevant to this JD. You may slightly rephrase to inject JD keywords (max 15% length change), but do NOT invent content.
+      content: `Pick the ${n} bullets most relevant to this JD. You may slightly rephrase to inject JD keywords (max 15% length change), but do NOT invent content.${excludeNote}
 
 Return JSON: {"selected": [{"index": <int>, "text": "<original or rephrased>"}, ...]}
 
@@ -75,7 +80,7 @@ ${numbered}`,
   if (!jsonMatch) throw new Error(`pickBullets: no JSON in response: ${text.slice(0, 200)}`);
   const parsed = JSON.parse(jsonMatch[0]);
   return parsed.selected.map(s => {
-    const original = pool[s.index];
+    const original = filteredPool[s.index];
     if (!original) throw new Error(`pickBullets: invalid index ${s.index}`);
     return { ...original, text: s.text };
   });

@@ -46,6 +46,18 @@ async function main() {
     console.error('Usage: node assemble-cv.mjs --jd=<path> [--archetype=...] [--feedback=...]');
     process.exit(1);
   }
+  let excludeBullets = [];
+  if (args.feedback) {
+    try {
+      const errs = JSON.parse(readFileSync(resolve(args.feedback), 'utf-8'));
+      excludeBullets = (errs.errors || [])
+        .filter(e => e.type === 'fabricated_bullet')
+        .map(e => e.bullet);
+    } catch {
+      // feedback file not present or unreadable — proceed without
+    }
+  }
+
   const jdText = readFileSync(resolve(args.jd), 'utf-8');
   const config = loadConfig(PROFILE_PATH);
   const sources = loadAllSources(SOURCES_ROOT);
@@ -115,7 +127,7 @@ async function main() {
         ? (config.archetype_defaults?.[archetype]?.top_bullets_full || 4)
         : (config.tier_rules?.light_bullets || 2);
       const truncated = pool.slice(0, Math.max(n * 2, n + 2));
-      co.bullets = await pickBullets(truncated, jdText, Math.min(n, truncated.length));
+      co.bullets = await pickBullets(truncated, jdText, Math.min(n, truncated.length), defaultClient(), excludeBullets);
     }
 
     companies.push(co);
