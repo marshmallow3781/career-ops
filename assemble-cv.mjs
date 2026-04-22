@@ -20,7 +20,7 @@ import {
   loadArticleDigest,
 } from './assemble-core.mjs';
 import {
-  defaultClient, classifyArchetype, pickBullets,
+  defaultClient, classifyArchetype, pickBullets, extractJdIntent,
 } from './assemble-llm.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -65,15 +65,25 @@ async function main() {
   const sources = loadAllSources(SOURCES_ROOT);
   validateConsistency(sources);
 
-  const meta = { jd: args.jd, archetype: null, companies: [] };
+  const meta = { jd: args.jd, archetype: null, intent: null, companies: [] };
 
-  // 1. Classify archetype
+  // 1. Classify archetype (for logging / top_bullets_full defaults only — NOT facet filter)
   const archetype = args.archetype || await classifyArchetype(jdText);
   meta.archetype = archetype;
 
+  // 1b. Extract JD intent — used to steer bullet picking beyond keyword scoring
+  const intent = await extractJdIntent(jdText);
+  meta.intent = intent;
+  console.error(`[assemble-cv] JD intent: role_type=${intent.role_type}, focus="${intent.primary_focus}"`);
+  if (intent.prefer_patterns?.length) console.error(`  PREFER: ${intent.prefer_patterns.join(' | ')}`);
+  if (intent.deprioritize_patterns?.length) console.error(`  DEPRIORITIZE: ${intent.deprioritize_patterns.join(' | ')}`);
+
   // 2. Determine which facets to pull
-  const facetsToUse = config.experience_sources.jd_archetype_sources[archetype];
-  if (!facetsToUse) throw new Error(`No jd_archetype_sources entry for "${archetype}"`);
+  // NOTE: archetype is kept for logging / top_bullets_full defaults, but is NOT
+  // used to filter facet files. We score bullets across ALL facets per company
+  // and let keyword relevance + LLM judgment pick the best matches. A single JD
+  // can legitimately surface bullets from backend.md + infra.md + machine_learning.md
+  // within one company's entry when the role cuts across multiple facets.
 
   // 3. Build keyword set
   let keywords = extractKeywords(jdText);
@@ -90,7 +100,7 @@ async function main() {
   const allSkills = new Set();
 
   for (const dir of sortedDirs) {
-    const facetFiles = sources[dir].filter(f => facetsToUse.includes(f.frontmatter.facet));
+    const facetFiles = sources[dir];   // ALL facets — no archetype filter
     const pool = [];
     for (const f of facetFiles) {
       for (const b of f.bullets) {
@@ -100,6 +110,7 @@ async function main() {
             text: b.text,
             sourcePath: f._sourcePath,
             sourceLine: b.lineNumber,
+            facet: f.frontmatter.facet,   // annotate source facet for transparency
             score,
           });
         }
@@ -117,7 +128,14 @@ async function main() {
     pool.sort((a, b) => b.score - a.score);
 
     const floor = config.experience_sources.overrides?.[dir]?.tier_floor || null;
-    const tier = assignTier(pool.length, floor);
+    // Tier is based on BEST bullet match, not pool size. With cross-facet pools,
+    // pool size is no longer a meaningful signal of JD-fit quality.
+    //   top score ≥ 3  → full (strong match somewhere in the company's bullets)
+    //   top score 1-2  → light (weak match — 1-2 bullets only)
+    //   no score > 0   → stub (no JD-relevant bullets)
+    const topScore = pool.length > 0 ? pool[0].score : 0;
+    const poolProxy = topScore >= 3 ? 3 : (topScore >= 1 ? 1 : 0);
+    const tier = assignTier(poolProxy, floor);
     const fmRef = sources[dir][0].frontmatter;
     // Always set stub — the renderer falls back to it when bullets array is
     // empty (e.g. tier_floor=light promoted an empty pool to "light" tier).
@@ -130,7 +148,7 @@ async function main() {
         ? (config.archetype_defaults?.[archetype]?.top_bullets_full || 4)
         : (config.tier_rules?.light_bullets || 2);
       const truncated = pool.slice(0, Math.max(n * 2, n + 2));
-      co.bullets = await pickBullets(truncated, jdText, Math.min(n, truncated.length), defaultClient(), excludeBullets);
+      co.bullets = await pickBullets(truncated, jdText, Math.min(n, truncated.length), defaultClient(), excludeBullets, intent);
     }
 
     companies.push(co);

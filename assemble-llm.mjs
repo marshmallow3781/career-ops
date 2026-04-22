@@ -21,13 +21,14 @@ export function defaultClient() {
 
 // ── Lenient parsing helpers ─────────────────────────────────────────
 
-const VALID_ARCHETYPES = ['frontend', 'backend', 'infra', 'machine_learning', 'fullstack'];
+const VALID_ARCHETYPES = ['frontend', 'backend', 'infra', 'machine_learning', 'ml_platform', 'fullstack'];
 
 const ARCHETYPE_ALIASES = {
-  machine_learning: ['machine_learning', 'machine learning', 'machine-learning', 'ml/ai', 'ai/ml', 'ml platform', 'ml engineer', 'ml engineering'],
+  ml_platform:      ['ml platform', 'ml/ai platform', 'ml infra', 'mlops', 'ml infrastructure', 'ai platform', 'model serving', 'feature store', 'training platform', 'ml platform engineer'],
+  machine_learning: ['machine_learning', 'machine learning', 'machine-learning', 'ml/ai', 'ai/ml', 'ml engineer', 'ml engineering', 'applied ml', 'ml researcher', 'ai researcher'],
   frontend:         ['frontend', 'front-end', 'front end', 'ui engineer', 'client-side'],
   backend:          ['backend', 'back-end', 'back end', 'server-side'],
-  infra:            ['infra', 'infrastructure', 'devops', 'sre', 'platform engineer', 'site reliability'],
+  infra:            ['infra', 'infrastructure', 'devops', 'sre', 'platform engineer', 'site reliability', 'data platform', 'data infrastructure'],
   fullstack:        ['fullstack', 'full-stack', 'full stack'],
 };
 
@@ -103,6 +104,60 @@ function extractJson(text) {
 
 // ── LLM-facing functions ────────────────────────────────────────────
 
+/**
+ * Extract structured role intent from a JD — what KIND of engineer the team is
+ * actually looking for, beyond keyword matching. The result guides pickBullets
+ * toward bullets that match the role's true nature (platform vs applied,
+ * modeling vs infra, etc.).
+ *
+ * @returns {Promise<{role_type, primary_focus, prefer_patterns, deprioritize_patterns}>}
+ */
+export async function extractJdIntent(jdText, client = defaultClient()) {
+  const response = await client.messages.create({
+    model: DEFAULT_MODEL,
+    max_tokens: 600,
+    system: 'You analyze job descriptions to extract the role\'s true nature. Output a single valid JSON object and nothing else. No prose, no markdown fences.',
+    messages: [{
+      role: 'user',
+      content: `Analyze this JD and extract its TRUE nature. Distinguish role TYPE carefully:
+
+- "backend" — building APIs, services, distributed systems (product-side)
+- "ml_platform" — building infra/SDKs/tooling for ML teams (NOT building models)
+- "machine_learning" — building ML models, training them, applied ML
+- "infra" — platform engineering / devops / SRE / data platform
+- "frontend" — UI, web, design systems
+- "fullstack" — balanced FE+BE product engineering
+
+Output EXACTLY this JSON:
+{
+  "role_type": "<one of the above>",
+  "primary_focus": "<one short sentence: what they actually want>",
+  "prefer_patterns": ["<type of work to emphasize>", "..."],
+  "deprioritize_patterns": ["<type of work to hide/minimize>", "..."]
+}
+
+Examples of prefer_patterns: "distributed systems at scale", "SDK design", "internal tooling used by other teams", "model serving infrastructure", "feature store ownership", "real-time pipelines"
+Examples of deprioritize_patterns: "frontend / UI", "applied ML model development", "agent / LangChain work", "privacy / compliance framing", "research publications"
+
+JD:
+${jdText.slice(0, 4000)}`,
+    }],
+  });
+  const raw = extractResponseText(response);
+  const parsed = extractJson(raw);
+  if (!parsed) {
+    // Soft failure — return a permissive default so assembly can proceed
+    console.error('[extractJdIntent] could not parse response, using permissive default');
+    return { role_type: 'unknown', primary_focus: '', prefer_patterns: [], deprioritize_patterns: [] };
+  }
+  return {
+    role_type: parsed.role_type || 'unknown',
+    primary_focus: parsed.primary_focus || '',
+    prefer_patterns: Array.isArray(parsed.prefer_patterns) ? parsed.prefer_patterns : [],
+    deprioritize_patterns: Array.isArray(parsed.deprioritize_patterns) ? parsed.deprioritize_patterns : [],
+  };
+}
+
 export async function classifyArchetype(jdText, client = defaultClient()) {
   const response = await client.messages.create({
     model: DEFAULT_MODEL,
@@ -142,23 +197,39 @@ ${jdText.slice(0, 4000)}`,
  * to pick the top N most relevant. The LLM may make light ATS-friendly rephrasing
  * but cannot invent bullets.
  */
-export async function pickBullets(pool, jdText, n, client = defaultClient(), exclude = []) {
+export async function pickBullets(pool, jdText, n, client = defaultClient(), exclude = [], intent = null) {
   if (pool.length === 0) return [];
   const filteredPool = pool.filter(p => !exclude.some(ex => ex.includes(p.text.slice(0, 40))));
   if (filteredPool.length <= n) return filteredPool;
 
-  const numbered = filteredPool.map((b, i) => `${i}: ${b.text}`).join('\n');
+  // Annotate each bullet with its facet so the LLM can see cross-facet variety
+  const numbered = filteredPool.map((b, i) => {
+    const facetTag = b.facet ? ` [${b.facet}]` : '';
+    return `${i}${facetTag}: ${b.text}`;
+  }).join('\n');
+
   const excludeNote = exclude.length > 0
     ? `\n\nIMPORTANT: A previous attempt failed validation. Avoid rephrasing too aggressively — keep wording very close to the original bullet text. Bullets that previously failed validation: ${exclude.slice(0, 5).map(e => `"${e.slice(0, 60)}"`).join(', ')}`
     : '';
 
+  // Inject role-intent context if available — steers picks beyond keyword scoring
+  const intentBlock = intent && (intent.primary_focus || intent.prefer_patterns?.length || intent.deprioritize_patterns?.length)
+    ? `\n\nROLE INTENT (use this to filter the pool):
+- Role type: ${intent.role_type || 'unknown'}
+- What they actually want: ${intent.primary_focus || '(not extracted)'}
+- PREFER bullets about: ${(intent.prefer_patterns || []).join(', ') || '(none specified)'}
+- DEPRIORITIZE bullets about: ${(intent.deprioritize_patterns || []).join(', ') || '(none specified)'}
+
+When picking, favor bullets in the PREFER list even if their raw keyword match is slightly lower. Avoid bullets in the DEPRIORITIZE list unless no alternative exists.\n`
+    : '';
+
   const response = await client.messages.create({
     model: DEFAULT_MODEL,
-    max_tokens: 1500,
-    system: 'You pick the most relevant resume bullets for a job description. Your response MUST be a single valid JSON object and NOTHING ELSE. No prose before or after. No markdown code fences. Just raw JSON.',
+    max_tokens: 3000,
+    system: 'You pick the most relevant resume bullets for a job description. Your response MUST be a single valid JSON object and NOTHING ELSE. No prose before or after. No markdown code fences. Just raw JSON. If you need to think, think silently — do not print your reasoning.',
     messages: [{
       role: 'user',
-      content: `Pick the ${n} bullets most relevant to this JD. You may slightly rephrase to inject JD keywords (max 15% length change), but do NOT invent content.${excludeNote}
+      content: `Pick the ${n} bullets most relevant to this JD. You may slightly rephrase to inject JD keywords (max 15% length change), but do NOT invent content.${excludeNote}${intentBlock}
 
 Output EXACTLY this JSON shape and nothing else:
 {"selected": [{"index": <int>, "text": "<original or rephrased>"}, ...]}
