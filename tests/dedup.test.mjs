@@ -113,3 +113,118 @@ test('computeJdFingerprint: returns 64-char hex string (SHA-256)', () => {
   assert.equal(fp.length, 64);
   assert.match(fp, /^[0-9a-f]{64}$/);
 });
+
+import { loadSeenJobs, appendSeenJobs, SEEN_JOBS_HEADER } from '../lib/dedup.mjs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+async function withTempFile(setup, fn) {
+  const dir = mkdtempSync(join(tmpdir(), 'seen-jobs-'));
+  const path = join(dir, 'seen-jobs.tsv');
+  if (setup) setup(path);
+  try {
+    return await fn(path, dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('loadSeenJobs: missing file → empty Sets and Maps', async () => {
+  await withTempFile(null, async (path) => {
+    const state = await loadSeenJobs(path);
+    assert.equal(state.linkedinIds.size, 0);
+    assert.equal(state.fingerprints.size, 0);
+    assert.equal(state.titleCompanyKeys.size, 0);
+  });
+});
+
+test('loadSeenJobs: file with 2 rows → populates sets', async () => {
+  await withTempFile(
+    (path) => {
+      writeFileSync(path,
+        SEEN_JOBS_HEADER + '\n' +
+        '3847123456\thttps://www.linkedin.com/jobs/view/3847123456\tanthropic\tstaff-swe-data-infra\t2026-04-22T14:00Z\t2026-04-22T14:00Z\tapify-linkedin-california\tnew\tabc123\tbackend\t9\tExact stack match\n' +
+        '(none)\thttps://job-boards.greenhouse.io/anthropic/jobs/4517823\tanthropic\tstaff-swe-data-infra\t2026-04-22T13:00Z\t2026-04-22T13:00Z\tscan-greenhouse\tnew\tabc123\t(none)\t(none)\t(none)\n'
+      );
+    },
+    async (path) => {
+      const state = await loadSeenJobs(path);
+      assert.equal(state.linkedinIds.size, 1);  // only LinkedIn entry
+      assert.ok(state.linkedinIds.has('3847123456'));
+      assert.equal(state.fingerprints.size, 1);  // both map to same fingerprint
+      assert.ok(state.fingerprints.has('abc123'));
+      assert.equal(state.titleCompanyKeys.size, 1);  // same company+title
+    }
+  );
+});
+
+test('appendSeenJobs: appends rows atomically and preserves existing data', async () => {
+  await withTempFile(
+    (path) => {
+      writeFileSync(path,
+        SEEN_JOBS_HEADER + '\n' +
+        'existing\thttps://x/1\tacme\tsenior-swe\t2026-04-22T10:00Z\t2026-04-22T10:00Z\tapify-linkedin-california\tnew\tfp1\tbackend\t8\told\n'
+      );
+    },
+    async (path) => {
+      await appendSeenJobs(path, [{
+        linkedin_id: 'new1',
+        url: 'https://www.linkedin.com/jobs/view/new1',
+        company_slug: 'globex',
+        title_normalized: 'backend-engineer',
+        first_seen_utc: '2026-04-22T14:00Z',
+        last_seen_utc: '2026-04-22T14:00Z',
+        source: 'apify-linkedin-california',
+        status: 'new',
+        jd_fingerprint: 'fp2',
+        prefilter_archetype: '(none)',
+        prefilter_score: '(none)',
+        prefilter_reason: '(none)',
+      }]);
+      const content = readFileSync(path, 'utf-8');
+      assert.ok(content.includes('existing'), 'existing row preserved');
+      assert.ok(content.includes('new1'), 'new row appended');
+    }
+  );
+});
+
+test('appendSeenJobs: creates file with header if missing', async () => {
+  await withTempFile(null, async (path) => {
+    assert.equal(existsSync(path), false);
+    await appendSeenJobs(path, [{
+      linkedin_id: 'first',
+      url: 'https://www.linkedin.com/jobs/view/first',
+      company_slug: 'acme',
+      title_normalized: 'swe',
+      first_seen_utc: '2026-04-22T14:00Z',
+      last_seen_utc: '2026-04-22T14:00Z',
+      source: 'apify-linkedin-california',
+      status: 'new',
+      jd_fingerprint: 'fp1',
+      prefilter_archetype: '(none)',
+      prefilter_score: '(none)',
+      prefilter_reason: '(none)',
+    }]);
+    const content = readFileSync(path, 'utf-8');
+    assert.ok(content.startsWith(SEEN_JOBS_HEADER), 'header present on first write');
+    assert.ok(content.includes('first'), 'row appended');
+  });
+});
+
+test('loadSeenJobs: corrupt file → backed up, empty state returned', async () => {
+  await withTempFile(
+    (path) => {
+      writeFileSync(path, 'not a valid tsv\nsome garbage here\n');
+    },
+    async (path, dir) => {
+      const state = await loadSeenJobs(path);
+      assert.equal(state.linkedinIds.size, 0);
+      assert.equal(state.fingerprints.size, 0);
+      // Verify backup was created
+      const files = readdirSync(dir);
+      const corrupt = files.find(f => f.includes('.corrupt-'));
+      assert.ok(corrupt, 'backup file created');
+    }
+  );
+});
