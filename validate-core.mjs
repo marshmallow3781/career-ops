@@ -152,3 +152,25 @@ export function checkBulletProvenance(markdown, sourcesRoot) {
   }
   return errors;
 }
+
+/**
+ * Verify that company headers in cv.tailored.md appear in the expected order.
+ * @param {string} markdown
+ * @param {string[]} expected — companies in the order they should appear (already chronologically sorted)
+ */
+export function checkChronologicalOrder(markdown, expected) {
+  const found = extractCompanyHeaders(markdown);
+  const reduced = found.filter(c => expected.some(e => c === e || c.startsWith(e + '-') || c.startsWith(e)))
+    .map(c => expected.find(e => c === e || c.startsWith(e + '-') || c.startsWith(e)));
+  for (let i = 0; i < expected.length; i++) {
+    if (reduced[i] !== expected[i]) {
+      return [{
+        type: 'chronology_violation',
+        found: reduced,
+        expected,
+        hint: 'Companies must appear in reverse chronological order (most recent first).',
+      }];
+    }
+  }
+  return [];
+}
