@@ -11,6 +11,7 @@
  * Writes new jobs atomically to data/seen-jobs.tsv + data/apify-new-{ts}.json.
  */
 
+import 'dotenv/config';
 import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

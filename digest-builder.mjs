@@ -18,6 +18,7 @@
  *   - archives old digests to data/digest-history/
  */
 
+import 'dotenv/config';
 import { readFileSync, writeFileSync, existsSync, readdirSync, renameSync, mkdirSync, unlinkSync } from 'node:fs';
 import { resolve, dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
