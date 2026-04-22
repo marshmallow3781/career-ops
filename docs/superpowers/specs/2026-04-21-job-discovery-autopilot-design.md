@@ -325,6 +325,21 @@ target_roles:
     - "Entry Level"
     - "Contract"
     - "C2C"
+  # Companies to exclude from the digest entirely. Matched case-insensitively
+  # against the normalized company slug (substring match). Applied in
+  # digest-builder Stage 1 alongside title filter — zero LLM cost.
+  company_blacklist:
+    - "RemoteHunter"
+    - "Walmart"
+    - "PayPal"
+    - "Jobright.ai"
+    - "Turing"
+    - "ByteDance"
+    - "TikTok"
+    - "Insight Global"
+    - "CyberCoders"
+    - "Jobs via Dice"
+    - "Open Talent"
 ```
 
 ### 6.7 `.env` additions
@@ -412,14 +427,19 @@ node digest-builder.mjs [--dry-run]
      { linkedin_id, url, title, company, company_slug, location,
        description, source, source_metro }
 
-4. STAGE 1 — free title filter (rule-based, from portals.yml.title_filter):
+4. STAGE 1 — free rule-based filter (from portals.yml + profile.yml):
      For each job:
        title_lc = job.title.toLowerCase()
        has_positive = any(k in title_lc for k in portals.title_filter.positive)
        has_negative = any(k in title_lc for k in portals.title_filter.negative)
        has_dealbreaker = any(k in title_lc for k in profile.target_roles.deal_breakers)
-       passes = has_positive AND NOT has_negative AND NOT has_dealbreaker
-     Tag in seen-jobs.tsv: passes → status='prefilter-passed' (temp), else 'filtered-title'
+       is_blacklisted = isCompanyBlacklisted(job.company, profile.target_roles.company_blacklist)
+       passes = has_positive AND NOT has_negative AND NOT has_dealbreaker AND NOT is_blacklisted
+     Tag in seen-jobs.tsv: passes → status='prefilter-passed' (temp), else 'filtered-title' or 'filtered-blacklist'
+
+     Company blacklist match: normalize both candidate company and blacklist entry
+     via `normalizeCompany()` (lowercase + kebab-case), then substring match.
+     "Walmart" entry matches "walmart", "walmart-labs", "walmart-connect".
 
 5. STAGE 2 — fingerprint dedup:
      For each survivor:
