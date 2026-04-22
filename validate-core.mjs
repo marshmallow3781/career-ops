@@ -2,6 +2,11 @@
  * validate-core.mjs — Pure functions for cv.tailored.md validation.
  */
 
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+const FUZZY_THRESHOLD = 0.85;
+
 /** Levenshtein distance (iterative, two-row). */
 function levenshtein(a, b) {
   if (a === b) return 0;
@@ -62,6 +67,86 @@ export function checkCompanyCoverage(markdown, required) {
         type: 'missing_company',
         company,
         hint: `Company "${company}" missing from cv.tailored.md. Ensure stub or higher tier is assigned.`,
+      });
+    }
+  }
+  return errors;
+}
+
+/**
+ * Extract all bullets and their provenance markers from a tailored CV.
+ * @returns {Array<{text: string, marker: {path: string, line: number}|null, raw: string}>}
+ */
+export function extractBulletsWithProvenance(markdown) {
+  const bullets = [];
+  const lines = markdown.split('\n');
+  for (const line of lines) {
+    const m = line.match(/^\s*-\s+(.+?)(?:\s*<!--\s*src:([^#\s]+)(?:#L(\d+))?\s*-->)?\s*$/);
+    if (m) {
+      const text = m[1].trim();
+      const path = m[2] || null;
+      const lineNo = m[3] ? Number(m[3]) : null;
+      bullets.push({
+        text,
+        marker: path ? { path, line: lineNo } : null,
+        raw: line,
+      });
+    }
+  }
+  return bullets;
+}
+
+/**
+ * Read all bullet texts from a source file's "## Bullets" section.
+ */
+function readSourceBullets(absPath) {
+  if (!existsSync(absPath)) return null;
+  const content = readFileSync(absPath, 'utf-8');
+  const bulletsSection = content.match(/##\s+Bullets\s*\n([\s\S]*?)(?=\n##\s|$)/);
+  if (!bulletsSection) return [];
+  const bullets = [];
+  for (const line of bulletsSection[1].split('\n')) {
+    const m = line.match(/^\s*-\s+(.+?)\s*$/);
+    if (m) bullets.push(m[1].trim());
+  }
+  return bullets;
+}
+
+/**
+ * @param {string} markdown — cv.tailored.md content
+ * @param {string} sourcesRoot — absolute path to experience_source/ root
+ * @returns {Array<{type: string, ...}>}
+ */
+export function checkBulletProvenance(markdown, sourcesRoot) {
+  const bullets = extractBulletsWithProvenance(markdown);
+  const errors = [];
+  for (const b of bullets) {
+    if (!b.marker) {
+      errors.push({
+        type: 'missing_marker',
+        bullet: b.text,
+        hint: 'Every bullet in cv.tailored.md must end with <!-- src:path/to/file.md#Lnnn -->',
+      });
+      continue;
+    }
+    const sourcePath = join(sourcesRoot, b.marker.path);
+    const sourceBullets = readSourceBullets(sourcePath);
+    if (sourceBullets === null) {
+      errors.push({
+        type: 'source_not_found',
+        bullet: b.text,
+        path: b.marker.path,
+        hint: `Source file ${b.marker.path} does not exist.`,
+      });
+      continue;
+    }
+    const matched = sourceBullets.some(src => levenshteinRatio(b.text, src) >= FUZZY_THRESHOLD);
+    if (!matched) {
+      errors.push({
+        type: 'fabricated_bullet',
+        bullet: b.text,
+        expected_sources: [b.marker.path],
+        hint: `Bullet not found in candidate pool of ${b.marker.path}; only select from provided pool.`,
       });
     }
   }

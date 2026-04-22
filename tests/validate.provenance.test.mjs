@@ -21,3 +21,69 @@ test('levenshteinRatio: ATS rephrase still matches above 0.85', () => {
   const r = levenshteinRatio(original, rephrased);
   assert.ok(r >= 0.85, `expected >=0.85 got ${r}`);
 });
+
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { checkBulletProvenance } from '../validate-core.mjs';
+
+function withTempSource(setup, fn) {
+  const dir = mkdtempSync(join(tmpdir(), 'cv-fixture-'));
+  try {
+    setup(dir);
+    return fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('provenance: bullet matches source → no error', () => {
+  withTempSource(
+    (dir) => {
+      mkdirSync(join(dir, 'acme'), { recursive: true });
+      writeFileSync(join(dir, 'acme', 'backend.md'), '## Bullets\n\n- Built distributed queue handling 10K rps\n');
+    },
+    (dir) => {
+      const tailored = '- Built distributed queue handling 10K rps <!-- src:acme/backend.md#L3 -->';
+      const errors = checkBulletProvenance(tailored, dir);
+      assert.deepEqual(errors, []);
+    }
+  );
+});
+
+test('provenance: fabricated bullet detected', () => {
+  withTempSource(
+    (dir) => {
+      mkdirSync(join(dir, 'acme'), { recursive: true });
+      writeFileSync(join(dir, 'acme', 'backend.md'), '## Bullets\n\n- Real bullet here\n');
+    },
+    (dir) => {
+      const tailored = '- Totally fabricated content <!-- src:acme/backend.md#L3 -->';
+      const errors = checkBulletProvenance(tailored, dir);
+      assert.equal(errors.length, 1);
+      assert.equal(errors[0].type, 'fabricated_bullet');
+    }
+  );
+});
+
+test('provenance: missing marker detected', () => {
+  const tailored = '- Bullet without provenance';
+  const errors = checkBulletProvenance(tailored, '/nonexistent');
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0].type, 'missing_marker');
+});
+
+test('provenance: ATS rephrase within 0.85 ratio passes', () => {
+  withTempSource(
+    (dir) => {
+      mkdirSync(join(dir, 'acme'), { recursive: true });
+      writeFileSync(join(dir, 'acme', 'backend.md'), '## Bullets\n\n- Built RAG pipeline with retrieval over embeddings\n');
+    },
+    (dir) => {
+      const tailored = '- Built RAG pipeline with retrieval of embeddings <!-- src:acme/backend.md#L3 -->';
+      const errors = checkBulletProvenance(tailored, dir);
+      assert.deepEqual(errors, []);
+    }
+  );
+});
