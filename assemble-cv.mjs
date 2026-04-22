@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import {
   loadConfig, loadAllSources, validateConsistency, sortCompanies,
   extractKeywords, expandSynonyms, scoreBullet, assignTier, renderTailored,
-  loadArticleDigest, computeSkillsBonus,
+  loadArticleDigest, computeSkillsBonus, deriveSignals,
 } from './assemble-core.mjs';
 import {
   defaultClient, classifyArchetype, pickBullets, extractJdIntent,
@@ -71,10 +71,20 @@ async function main() {
   const archetype = args.archetype || await classifyArchetype(jdText);
   meta.archetype = archetype;
 
-  // 1b. Extract JD intent — used to steer bullet picking beyond keyword scoring
-  const intent = await extractJdIntent(jdText);
+  // 1b. Detect signals deterministically (always runs, used as raw material
+  //     for the LLM intent prompt AND as the fallback source on LLM failure)
+  const firedSignals = deriveSignals(jdText);
+  meta.fired_signals = [...firedSignals];
+  console.error(`[assemble-cv] Fired signals: ${[...firedSignals].join(', ') || '(none)'}`);
+
+  // 1c. Extract JD intent — engineer-archetype narratives via LLM with retry
+  //     and deterministic fallback. role_type is filled from classifyArchetype
+  //     below since this call focuses on narrative quality, not classification.
+  const intentRaw = await extractJdIntent(jdText);
+  const intent = { ...intentRaw, role_type: archetype };
   meta.intent = intent;
-  console.error(`[assemble-cv] JD intent: role_type=${intent.role_type}, focus="${intent.primary_focus}"`);
+  console.error(`[assemble-cv] Intent source: ${intent._source}; role_type=${intent.role_type}`);
+  console.error(`  focus: "${intent.primary_focus}"`);
   if (intent.prefer_patterns?.length) console.error(`  PREFER: ${intent.prefer_patterns.join(' | ')}`);
   if (intent.deprioritize_patterns?.length) console.error(`  DEPRIORITIZE: ${intent.deprioritize_patterns.join(' | ')}`);
 
