@@ -243,10 +243,14 @@ export function renderTailored({ profile, companies, projects, competencies, sum
   if (contact) lines.push(`*${contact}*`);
   lines.push('');
 
-  lines.push('## Professional Summary');
-  lines.push('');
-  lines.push(summary);
-  lines.push('');
+  // Professional Summary: render only if explicitly provided.
+  // User preference: section removed by default.
+  if (summary && summary.trim()) {
+    lines.push('## Professional Summary');
+    lines.push('');
+    lines.push(summary);
+    lines.push('');
+  }
 
   if (competencies?.length) {
     lines.push('## Core Competencies');
@@ -275,6 +279,21 @@ export function renderTailored({ profile, companies, projects, competencies, sum
       }
     }
     lines.push('');
+  }
+
+  // Education — sourced from profile.yml's `education` array
+  const education = profile.education || [];
+  if (education.length > 0) {
+    lines.push('## Education');
+    lines.push('');
+    for (const e of education) {
+      const instAndLoc = e.location ? `${e.institution} — ${e.location}` : e.institution;
+      lines.push(`### ${instAndLoc}`);
+      const dates = e.end ? `${e.start} → ${e.end}` : e.start;
+      lines.push(`**${e.degree}** | ${dates}`);
+      if (e.notes) lines.push(e.notes);
+      lines.push('');
+    }
   }
 
   if (projects?.length) {

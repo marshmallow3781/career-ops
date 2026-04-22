@@ -20,7 +20,7 @@ import {
   loadArticleDigest,
 } from './assemble-core.mjs';
 import {
-  defaultClient, classifyArchetype, pickBullets, writeSummary,
+  defaultClient, classifyArchetype, pickBullets,
 } from './assemble-llm.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -159,8 +159,9 @@ async function main() {
     .filter(s => keywords.has(s.toLowerCase()))
     .slice(0, 8);
 
-  // 8. Summary
-  const summary = await writeSummary(config, jdText);
+  // 8. Summary: DISABLED (user preference — Professional Summary section removed).
+  //    renderTailored skips the section when summary is empty.
+  const summary = '';
 
   // 9. Render
   const md = renderTailored({ profile: config, companies, projects, competencies, summary });
