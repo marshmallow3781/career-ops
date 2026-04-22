@@ -1,0 +1,22 @@
+candidate:
+  full_name: "Test Candidate"
+  email: "test@example.com"
+  location: "SF, CA"
+
+narrative:
+  headline: "Backend/Infra Engineer with ML side projects"
+
+target_roles:
+  archetypes_of_interest:
+    - backend
+    - infra
+    - machine_learning
+  seniority_min: "Mid-Senior"
+  seniority_max: "Staff"
+  deal_breakers:
+    - "Test"
+    - "Contract"
+    - "C2C"
+
+experience_sources:
+  root: experience_source
