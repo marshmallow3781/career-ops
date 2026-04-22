@@ -154,7 +154,7 @@ async function main() {
       const n = tier === 'full'
         ? (config.archetype_defaults?.[archetype]?.top_bullets_full || 4)
         : (config.tier_rules?.light_bullets || 2);
-      const truncated = pool.slice(0, Math.max(n * 2, n + 2));
+      const truncated = pool.slice(0, Math.max(n * 4, 15));
       co.bullets = await pickBullets(truncated, jdText, Math.min(n, truncated.length), defaultClient(), excludeBullets, intent);
     }
 
