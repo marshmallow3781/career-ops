@@ -446,3 +446,165 @@ export async function buildDigest({ profile, portals, sources, candidateJobs, ex
     },
   };
 }
+
+/**
+ * Load all data/apify-new-*.json files that haven't been archived, plus
+ * optionally recent scan.mjs pipeline.md additions. Returns merged job list.
+ */
+function loadCandidateJobs() {
+  const jobs = [];
+  if (existsSync(DATA_DIR)) {
+    const files = readdirSync(DATA_DIR).filter(f => f.startsWith(APIFY_NEW_GLOB) && f.endsWith('.json'));
+    for (const f of files) {
+      try {
+        const content = JSON.parse(readFileSync(join(DATA_DIR, f), 'utf-8'));
+        for (const j of content.new_jobs || []) {
+          jobs.push({
+            ...j,
+            source: `apify-linkedin-${j.source_metro || 'unknown'}`,
+            sources: [`apify-${j.source_metro || 'unknown'}`],
+            jd_fingerprint: j.description ? computeJdFingerprint(j.description) : null,
+          });
+        }
+      } catch (e) {
+        console.error(`[digest] failed to parse ${f}: ${e.message}`);
+      }
+    }
+  }
+  return jobs;
+}
+
+/**
+ * Archive processed apify-new-*.json files after successful digest build.
+ */
+function archiveApifyNewFiles() {
+  if (!existsSync(APIFY_ARCHIVE_DIR)) mkdirSync(APIFY_ARCHIVE_DIR, { recursive: true });
+  const files = readdirSync(DATA_DIR).filter(f => f.startsWith(APIFY_NEW_GLOB) && f.endsWith('.json'));
+  for (const f of files) {
+    try {
+      renameSync(join(DATA_DIR, f), join(APIFY_ARCHIVE_DIR, f));
+    } catch (e) {
+      console.error(`[digest] failed to archive ${f}: ${e.message}`);
+    }
+  }
+}
+
+/**
+ * Archive yesterday's digest.md to digest-history/ and start fresh.
+ * Called only at 7am.
+ */
+function archiveYesterdayDigest() {
+  if (!existsSync(DIGEST_PATH)) return;
+  if (!existsSync(HISTORY_DIR)) mkdirSync(HISTORY_DIR, { recursive: true });
+  // Extract date from the existing digest's first line if possible
+  const content = readFileSync(DIGEST_PATH, 'utf-8');
+  const m = content.match(/^# Job Digest — (\d{4}-\d{2}-\d{2})/);
+  const dateStr = m ? m[1] : new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const target = join(HISTORY_DIR, `${dateStr}.md`);
+  if (!existsSync(target)) {
+    renameSync(DIGEST_PATH, target);
+  }
+  // Prune older than 30 days
+  const cutoff = Date.now() - 30 * 86400000;
+  for (const f of readdirSync(HISTORY_DIR)) {
+    const dm = f.match(/^(\d{4}-\d{2}-\d{2})\.md$/);
+    if (!dm) continue;
+    const fileDate = new Date(dm[1]).getTime();
+    if (fileDate < cutoff) {
+      try { unlinkSync(join(HISTORY_DIR, f)); } catch { /* ignore */ }
+    }
+  }
+}
+
+/**
+ * Send a macOS notification via osascript.
+ */
+function notify(text) {
+  try {
+    execFileSync('osascript', ['-e',
+      `display notification "${text.replace(/"/g, '\\"')}" with title "career-ops autopilot"`],
+      { stdio: 'ignore' });
+  } catch { /* notification failure should not crash digest */ }
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const dryRun = args.includes('--dry-run');
+
+  const profilePath = resolve(__dirname, 'config/profile.yml');
+  const portalsPath = resolve(__dirname, 'portals.yml');
+  if (!existsSync(profilePath)) {
+    console.error(`Missing config/profile.yml — copy from config/profile.example.yml`);
+    process.exit(1);
+  }
+  const profile = yaml.load(readFileSync(profilePath, 'utf-8'));
+  const portals = existsSync(portalsPath)
+    ? yaml.load(readFileSync(portalsPath, 'utf-8'))
+    : { title_filter: { positive: [], negative: [] } };
+
+  // Load experience_source via assemble-core (shared module)
+  const { loadAllSources } = await import('./assemble-core.mjs');
+  const sourcesRoot = resolve(__dirname, profile.experience_sources?.root || 'experience_source');
+  const sources = existsSync(sourcesRoot) ? loadAllSources(sourcesRoot) : {};
+
+  const candidateJobs = loadCandidateJobs();
+
+  // Check if 7am (baseline) for archive
+  const hourPst = parseInt(
+    new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hour12: false }),
+    10
+  );
+  const isBaseline = hourPst === 7;
+
+  if (!dryRun && isBaseline) {
+    archiveYesterdayDigest();
+  }
+
+  const existingDigest = existsSync(DIGEST_PATH) ? readFileSync(DIGEST_PATH, 'utf-8') : '';
+
+  // Build Haiku client
+  const haikuClient = dryRun
+    ? { messages: { create: async () => ({ content: [{ text: '{"archetype":"unknown","score":null,"reason":"dry run"}' }] }) } }
+    : new Anthropic();
+
+  const result = await buildDigest({
+    profile, portals, sources, candidateJobs,
+    existingDigest, haikuClient, dryRun,
+  });
+
+  if (!dryRun) {
+    writeFileSync(DIGEST_PATH, result.digestMd);
+    if (result.pipelineAdditions.length > 0) {
+      const pipelineContent = existsSync(PIPELINE_PATH) ? readFileSync(PIPELINE_PATH, 'utf-8') : '## Pendientes\n\n';
+      // Find "## Pendientes" and insert after it
+      let updated;
+      const marker = '## Pendientes';
+      const idx = pipelineContent.indexOf(marker);
+      if (idx !== -1) {
+        const insertAt = idx + marker.length;
+        updated = pipelineContent.slice(0, insertAt) + '\n' + result.pipelineAdditions.join('\n') + pipelineContent.slice(insertAt);
+      } else {
+        updated = `## Pendientes\n\n${result.pipelineAdditions.join('\n')}\n\n${pipelineContent}`;
+      }
+      writeFileSync(PIPELINE_PATH, updated);
+    }
+    archiveApifyNewFiles();
+    notify(result.notification);
+  }
+
+  console.log(JSON.stringify({
+    dryRun,
+    ...result.stats,
+    notification: result.notification,
+    digest_path: DIGEST_PATH,
+    pipeline_additions: result.pipelineAdditions.length,
+  }, null, 2));
+}
+
+// Run as CLI unless imported
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch(err => {
+    console.error('digest-builder.mjs crashed:', err);
+    process.exit(2);
+  });
+}
