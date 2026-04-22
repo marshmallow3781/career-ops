@@ -48,3 +48,15 @@ test('scoreBullet: case insensitive, whole-token match', () => {
   const keywords = new Set(['postgres']);
   assert.equal(scoreBullet(bullet, keywords), 1);
 });
+
+test('scoreBullet: plural keyword matches singular bullet token', () => {
+  const bullet = 'Built a TypeScript SDK for web event tracking';
+  const keywords = new Set(['sdks']);
+  assert.equal(scoreBullet(bullet, keywords), 1);
+});
+
+test('scoreBullet: singular keyword matches plural bullet token', () => {
+  const bullet = 'Developed APIs for payment processing';
+  const keywords = new Set(['api']);
+  assert.equal(scoreBullet(bullet, keywords), 1);
+});

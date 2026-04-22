@@ -190,15 +190,24 @@ export function expandSynonyms(keywords, synonymsPath) {
 }
 
 /**
- * Count the number of distinct keywords that appear in the bullet text (case-insensitive,
- * whole-phrase). Returns an integer.
+ * Count the number of distinct keywords that appear in the bullet text
+ * (case-insensitive, whole-phrase, with a simple plural/singular fallback).
+ * If an exact match fails, try the variant with/without trailing 's'.
+ * Words of length ≤ 3 do not get the variant attempt (avoids matching "is"/"as").
  */
 export function scoreBullet(bulletText, keywords) {
   const lc = bulletText.toLowerCase();
   let hits = 0;
   for (const kw of keywords) {
-    const re = new RegExp(`\\b${escapeRegex(kw.toLowerCase())}\\b`);
-    if (re.test(lc)) hits++;
+    const base = kw.toLowerCase();
+    if (new RegExp(`\\b${escapeRegex(base)}\\b`).test(lc)) {
+      hits++;
+      continue;
+    }
+    let variant;
+    if (base.endsWith('s') && base.length > 3) variant = base.slice(0, -1);
+    else variant = base + 's';
+    if (new RegExp(`\\b${escapeRegex(variant)}\\b`).test(lc)) hits++;
   }
   return hits;
 }
