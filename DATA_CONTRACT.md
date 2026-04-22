@@ -9,6 +9,11 @@ These files contain your personal data, customizations, and work product. Update
 | File | Purpose |
 |------|---------|
 | `experience_source/*` | Per-company × per-facet structured experience source files |
+| `config/apify-search.yml` | Your Apify search config (autopilot) |
+| `data/seen-jobs.tsv` | Autopilot dedup state |
+| `data/digest.md` | Today's ranked job digest |
+| `data/digest-history/*` | 30-day digest archive |
+| `data/apify-new-*.json` | Per-run Apify output (archived after processing) |
 | `config/profile.yml` | Your identity, targets, comp range |
 | `modes/_profile.md` | Your archetypes, narrative, negotiation scripts |
 | `article-digest.md` | Non-company proof points (open-source, blog posts, talks, side projects) |
@@ -56,6 +61,13 @@ These files contain system logic, scripts, templates, and instructions that impr
 | `tests/*` | Unit + E2E test files |
 | `__fixtures__/*` | Test fixtures (synthetic experience_source + profile + JDs) |
 | `config/synonyms.yml` | Keyword scoring synonyms |
+| `apify-scan.mjs` | Apify LinkedIn scanner (autopilot) |
+| `digest-builder.mjs` | 3-stage filter + digest renderer (autopilot) |
+| `lib/dedup.mjs` | Shared dedup helpers (autopilot) |
+| `autopilot-sources.sh` | launchd-invoked parallel launcher |
+| `.launchd/*.plist` | launchd job configurations |
+| `.launchd/*.sh` | install/pause/resume/uninstall scripts |
+| `config/apify-search.example.yml` | Template for apify-search.yml |
 | `batch/batch-prompt.md` | Batch worker prompt |
 | `batch/batch-runner.sh` | Batch orchestrator |
 | `dashboard/*` | Go TUI dashboard |

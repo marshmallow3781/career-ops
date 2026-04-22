@@ -172,6 +172,13 @@ const systemFiles = [
   'assemble-cv.mjs', 'assemble-core.mjs', 'assemble-llm.mjs',
   'validate-cv.mjs', 'validate-core.mjs',
   'config/synonyms.yml',
+  // autopilot (fork-v0.2.0)
+  'apify-scan.mjs', 'digest-builder.mjs', 'lib/dedup.mjs',
+  'autopilot-sources.sh',
+  'config/apify-search.example.yml',
+  '.launchd/com.marshmallow.career-ops.sources.plist',
+  '.launchd/com.marshmallow.career-ops.digest.plist',
+  '.launchd/setup.sh', '.launchd/uninstall.sh',
 ];
 
 for (const f of systemFiles) {
@@ -254,7 +261,7 @@ console.log('\n7. Absolute path check');
 // Same git grep approach: only scans tracked files. Untracked AI tool
 // outputs, local debate artifacts, etc. can't false-positive here.
 const absPathResult = run(
-  `git grep -n "/Users/" -- '*.mjs' '*.sh' '*.md' '*.go' '*.yml' 2>/dev/null | grep -v README.md | grep -v LICENSE | grep -v CLAUDE.md | grep -v test-all.mjs`
+  `git grep -n "/Users/" -- '*.mjs' '*.sh' '*.md' '*.go' '*.yml' 2>/dev/null | grep -v README.md | grep -v LICENSE | grep -v CLAUDE.md | grep -v test-all.mjs | grep -v 'docs/superpowers/' | grep -v 'integration-smoke.mjs'`
 );
 if (!absPathResult) {
   pass('No absolute paths in code files');

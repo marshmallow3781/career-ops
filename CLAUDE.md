@@ -64,6 +64,14 @@ AI-powered job search automation built on Claude Code: pipeline tracking, offer 
 | `cv.tailored.md` | Per-JD assembly output (gitignored, regenerated each run) |
 | `.cv-tailored-meta.json` | Debug sidecar (pools, tiers, archetype decisions) |
 | `article-digest.md` | Non-company proof points (open-source, blog posts, talks, side projects) |
+| `apify-scan.mjs` | Apify LinkedIn scraper (4 metros, every 2h) |
+| `digest-builder.mjs` | 3-stage filter + digest renderer |
+| `lib/dedup.mjs` | Shared dedup helpers (seen-jobs.tsv, fingerprints) |
+| `data/digest.md` | Ranked job digest (autopilot output, refreshed every 2h) |
+| `data/digest-history/` | 30-day archive of daily digests |
+| `data/seen-jobs.tsv` | Dedup state for autopilot (gitignored) |
+| `config/apify-search.yml` | Apify config (locations, rows, cadence) |
+| `.launchd/*.plist` | macOS schedulers for autopilot |
 | `interview-prep/story-bank.md` | Accumulated STAR+R stories across evaluations |
 | `interview-prep/{company}-{role}.md` | Company-specific interview intel reports |
 | `analyze-patterns.mjs` | Pattern analysis script (JSON output) |
@@ -272,6 +280,28 @@ Default modes are in `modes/` (English). Additional language-specific modes are 
 - `cv.tailored.md` is generated per-JD by `assemble-cv.mjs`. Modes with JD context read it.
 - `article-digest.md` holds non-company proof points (open-source, articles, talks).
 - **NEVER hardcode metrics** -- read them from these files at evaluation time
+
+### Autopilot Discovery (fork-v0.2.0)
+
+The autopilot layer scans LinkedIn (via Apify) + Greenhouse/Ashby/Lever
+every 2 hours 7am-9pm PST, pre-filters with archetype-aware Haiku, and
+produces `data/digest.md` for morning triage. See
+`docs/superpowers/specs/2026-04-21-job-discovery-autopilot-design.md`.
+
+Install: `bash .launchd/setup.sh` (requires `APIFY_API_TOKEN` in `.env`)
+Pause:   `bash .launchd/pause.sh`
+Resume:  `bash .launchd/resume.sh`
+
+The autopilot **never auto-evaluates, auto-generates PDFs, or
+auto-submits**. It only discovers, pre-filters, and presents a ranked
+list. User picks jobs from `digest.md`, copies a URL, and runs
+`/career-ops pipeline <url>` to trigger the assembly + evaluation flow.
+
+**Dedup guarantees:**
+- Never scan the same LinkedIn job twice (via `linkedin_id` in `seen-jobs.tsv`)
+- Never pre-filter the same job twice (via `jd_fingerprint` SHA-256)
+- Never evaluate or PDF-generate for a job already in `applications.md`
+  (existing check in `modes/pipeline.md` preserves this)
 
 ### Assembly First Rule (this fork)
 

@@ -1,5 +1,50 @@
 # Changelog
 
+## fork-v0.2.0 — 2026-04-21 (marshmallow3781/career-ops)
+
+Personal fork: job discovery autopilot. Not pushed upstream.
+
+### Features
+
+- New `apify-scan.mjs`: scrapes LinkedIn via Apify actor
+  `curious_coder/linkedin-jobs-scraper` ($1/1000 results) across 4 US metros
+  (California, Greater Seattle, NYC Metro, Boston) in parallel via
+  `Promise.allSettled` every 2 hours 7am-9pm PST
+- New `digest-builder.mjs`: 3-stage filter (title/deal-breaker/blacklist
+  → SHA-256 fingerprint dedup → Haiku archetype-aware scoring 0-10)
+  produces `data/digest.md` grouped by score bucket and archetype
+- New `lib/dedup.mjs`: shared helpers for LinkedIn ID extraction,
+  kebab normalization, JD fingerprinting, and TSV state I/O with atomic
+  writes + corruption recovery
+- `scan.mjs` modified to write to `seen-jobs.tsv` with `jd_fingerprint`
+  for cross-source dedup (LinkedIn + Greenhouse postings of the same
+  job collapse to one digest entry)
+- Company blacklist (11 entries default) applied in Stage 1 — blacklisted
+  jobs never hit Haiku, never appear in digest
+- 2 macOS launchd plists + install/pause/resume/uninstall scripts
+- macOS notifications after each digest run
+- 30-day digest history archive
+
+### Dependencies
+
+- Added: `apify-client@^2.9.5`
+
+### Cost (estimated)
+
+- Autopilot infrastructure: ~$90/mo (Apify ~$60 at $1/1000 rate +
+  Haiku pre-filter ~$30 with 1h prompt caching)
+- Per-job evaluation (user-initiated): pay-as-you-go ~$0.15/job
+
+### Tests
+
+- 95/95 tests passing (new: ~50 unit + 4 E2E across
+  `tests/dedup.test.mjs`, `tests/apify-scan.test.mjs`,
+  `tests/digest-builder.test.mjs`, `tests/autopilot.e2e.test.mjs`)
+
+### Design
+
+See `docs/superpowers/specs/2026-04-21-job-discovery-autopilot-design.md`.
+
 ## fork-v0.1.0 — 2026-04-21 (marshmallow3781/career-ops)
 
 Personal fork: experience-source assembly. Not pushed upstream.
