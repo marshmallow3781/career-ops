@@ -82,3 +82,73 @@ export function isCompanyBlacklisted(companyName, blacklist) {
     return normalized === entryNormalized || normalized.includes(entryNormalized);
   });
 }
+
+/**
+ * Build the cached candidate-summary block used in the Haiku pre-filter prompt.
+ * Assembled from config/profile.yml + experience_source/ (via loadAllSources,
+ * shared with assemble-cv.mjs).
+ *
+ * Length target: ~400-500 tokens, cacheable.
+ */
+export function buildCandidateSummary(profile, sources) {
+  const cand = profile.candidate || {};
+  const tr = profile.target_roles || {};
+  const narrative = profile.narrative || {};
+  const archetypes = (tr.archetypes_of_interest || ['frontend', 'backend', 'infra', 'machine_learning']).join(', ');
+  const minSen = tr.seniority_min || 'Mid-Senior';
+  const maxSen = tr.seniority_max || 'Staff';
+
+  const lines = [];
+  lines.push('<candidate_profile>');
+  lines.push(`Name: ${cand.full_name || 'Candidate'}`);
+  lines.push(`Seniority: ${minSen}–${maxSen} target; NOT Junior/Intern/Entry`);
+  lines.push(`Open to roles across: ${archetypes}`);
+  if (narrative.headline) lines.push(`Headline: ${narrative.headline}`);
+  lines.push('');
+
+  // Group bullets by archetype across companies
+  const byArchetype = {};
+  for (const [dir, files] of Object.entries(sources || {})) {
+    for (const f of files || []) {
+      const fm = f.frontmatter || {};
+      const facet = fm.facet || 'unknown';
+      byArchetype[facet] ??= [];
+      const role = `${fm.company || dir} (${fm.role || 'SWE'}, ${fm.start || '?'}-${fm.end || 'present'})`;
+      const bullets = (f.bullets || []).slice(0, 3).map(b => b.text).join('; ');
+      byArchetype[facet].push(`- ${role}: ${bullets}`);
+    }
+  }
+
+  const facetOrder = ['frontend', 'backend', 'infra', 'machine_learning'];
+  const seenFacets = new Set();
+  for (const facet of facetOrder) {
+    if (byArchetype[facet]?.length) {
+      lines.push(facet.toUpperCase() + ':');
+      for (const ln of byArchetype[facet]) lines.push('  ' + ln);
+      lines.push('');
+      seenFacets.add(facet);
+    }
+  }
+  // Include any additional facets (e.g. 'unknown', 'fullstack') that appear in sources
+  for (const facet of Object.keys(byArchetype)) {
+    if (seenFacets.has(facet)) continue;
+    if (!byArchetype[facet]?.length) continue;
+    lines.push(facet.toUpperCase() + ':');
+    for (const ln of byArchetype[facet]) lines.push('  ' + ln);
+    lines.push('');
+  }
+
+  // Flatten skills across all files
+  const allSkills = new Set();
+  for (const files of Object.values(sources || {})) {
+    for (const f of files || []) {
+      for (const s of f.skills || []) allSkills.add(s);
+    }
+  }
+  if (allSkills.size > 0) {
+    lines.push(`Skills breadth: ${[...allSkills].slice(0, 30).join(', ')}`);
+  }
+  lines.push('</candidate_profile>');
+
+  return lines.join('\n');
+}

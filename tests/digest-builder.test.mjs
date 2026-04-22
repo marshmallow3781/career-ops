@@ -78,3 +78,53 @@ test('isCompanyBlacklisted: empty company name → not blacklisted', () => {
   assert.equal(isCompanyBlacklisted('', blacklist), false);
   assert.equal(isCompanyBlacklisted(null, blacklist), false);
 });
+
+import { buildCandidateSummary } from '../digest-builder.mjs';
+
+test('buildCandidateSummary: includes name + seniority + archetypes', () => {
+  const profile = {
+    candidate: { full_name: 'Test User' },
+    target_roles: {
+      archetypes_of_interest: ['backend', 'infra'],
+      seniority_min: 'Mid-Senior',
+      seniority_max: 'Staff',
+    },
+    narrative: { headline: 'Backend engineer' },
+  };
+  const sources = {
+    acme: [
+      {
+        frontmatter: { company: 'Acme Corp', role: 'Senior Engineer' },
+        bullets: [{ text: 'Built Go microservices' }, { text: 'Kafka pipelines' }],
+        projects: [],
+        skills: ['Go', 'Kafka'],
+      },
+    ],
+  };
+  const summary = buildCandidateSummary(profile, sources);
+  assert.match(summary, /Test User/);
+  assert.match(summary, /Mid-Senior/);
+  assert.match(summary, /Staff/);
+  assert.match(summary, /backend/i);
+  assert.match(summary, /infra/i);
+});
+
+test('buildCandidateSummary: includes company+role lines from sources', () => {
+  const profile = {
+    candidate: { full_name: 'X' },
+    target_roles: { archetypes_of_interest: ['backend'] },
+  };
+  const sources = {
+    linkedin: [
+      {
+        frontmatter: { company: 'LinkedIn Corp', role: 'Software Engineer', start: '2025-01' },
+        bullets: [{ text: 'GDPR data deletion' }],
+        skills: ['Airflow', 'Spark'],
+      },
+    ],
+  };
+  const summary = buildCandidateSummary(profile, sources);
+  assert.match(summary, /LinkedIn Corp/);
+  assert.match(summary, /Software Engineer/);
+  assert.match(summary, /Airflow/);
+});
