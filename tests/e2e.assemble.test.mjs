@@ -20,20 +20,30 @@ function mockClient(archetypeAnswer) {
         if (/Classify this JD/.test(userText)) {
           return { content: [{ text: archetypeAnswer }] };
         }
+        if (/describe the engineer archetype/.test(userText)) {
+          return { content: [{ text: JSON.stringify({
+            primary_focus: 'Test role focused on mock work',
+            prefer_patterns: [
+              'Test engineer with general skills',
+              'Generalist engineer for testing',
+              'Engineer comfortable with test fixtures',
+            ],
+          }) }] };
+        }
         if (/Pick the (\d+) bullets/.test(userText)) {
           const n = Number(userText.match(/Pick the (\d+) bullets/)[1]);
           const bulletsBlock = userText.split('BULLETS:')[1].trim();
-          const lines = bulletsBlock.split('\n').filter(l => /^\d+:/.test(l));
+          const lines = bulletsBlock.split('\n').filter(l => /^\d+(?:\s+\[[^\]]+\])?:/.test(l));
           const selected = lines.slice(0, n).map(l => {
-            const [idxStr, ...rest] = l.split(':');
-            return { index: Number(idxStr), text: rest.join(':').trim() };
+            const match = l.match(/^(\d+)(?:\s+\[[^\]]+\])?:\s*(.*)$/);
+            return { index: Number(match[1]), text: match[2].trim() };
           });
           return { content: [{ text: JSON.stringify({ selected }) }] };
         }
         if (/Professional Summary/.test(userText)) {
           return { content: [{ text: 'Mock summary for testing.' }] };
         }
-        throw new Error('mockClient: unrecognized prompt');
+        throw new Error(`mockClient: unrecognized prompt: ${userText.slice(0, 120)}`);
       },
     },
   };
