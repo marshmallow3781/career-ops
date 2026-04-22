@@ -152,3 +152,44 @@ test('validateConsistency: mismatched role across facets throws', () => {
     }
   );
 });
+
+import { sortCompanies } from '../assemble-core.mjs';
+
+const _2024 = (facet) => `---
+company: A
+role: r
+location: l
+start: 2024-01
+end: present
+facet: ${facet}
+---
+## Bullets
+- x
+`;
+
+const _2020 = (facet) => `---
+company: B
+role: r
+location: l
+start: 2020-01
+end: 2023-12
+facet: ${facet}
+---
+## Bullets
+- x
+`;
+
+test('sortCompanies: most recent first by start date', async () => {
+  await withFakeSources(
+    (dir) => {
+      mkdirSync(join(dir, 'older'));
+      mkdirSync(join(dir, 'newer'));
+      writeFileSync(join(dir, 'older', 'backend.md'), _2020('backend'));
+      writeFileSync(join(dir, 'newer', 'backend.md'), _2024('backend'));
+    },
+    async (dir) => {
+      const sorted = await sortCompanies(dir, ['older', 'newer']);
+      assert.deepEqual(sorted, ['newer', 'older']);
+    }
+  );
+});

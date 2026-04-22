@@ -112,3 +112,27 @@ export function validateConsistency(sources) {
     }
   }
 }
+
+/**
+ * Returns company directory names sorted reverse-chronologically by frontmatter start.
+ * Tie-break: end desc, then alphabetical.
+ *
+ * "present" or empty end is treated as a date past any actual date.
+ */
+export async function sortCompanies(sourcesRoot, companyDirs) {
+  const dated = companyDirs.map(dir => {
+    const facetFiles = readdirSync(join(sourcesRoot, dir)).filter(f => f.endsWith('.md'));
+    if (facetFiles.length === 0) return { dir, start: '0000-00', end: '0000-00' };
+    const first = parseSourceFile(readFileSync(join(sourcesRoot, dir, facetFiles[0]), 'utf-8'));
+    const start = String(first.frontmatter.start);
+    const endRaw = String(first.frontmatter.end || 'present');
+    const end = endRaw.toLowerCase() === 'present' ? '9999-99' : endRaw;
+    return { dir, start, end };
+  });
+  dated.sort((a, b) => {
+    if (a.start !== b.start) return b.start.localeCompare(a.start);
+    if (a.end !== b.end) return b.end.localeCompare(a.end);
+    return a.dir.localeCompare(b.dir);
+  });
+  return dated.map(d => d.dir);
+}
