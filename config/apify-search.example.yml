@@ -15,11 +15,19 @@ default_params:
     apifyProxyGroups: ["RESIDENTIAL"]
 
 locations:
-  - name: california
-    location: "California, United States"
-    geoId: "102095887"
+  # LinkedIn has no single state-level geoId; use metro-level geoIds and
+  # fan out. geoId 102095887 was previously labeled "California" but
+  # empirically resolves to LA County — use metro geoIds instead.
+  - name: bay-area
+    location: "San Francisco Bay Area"
+    geoId: "90000084"
     baseline_rows: 500
     hourly_rows: 200
+  - name: greater-la
+    location: "Greater Los Angeles Area"
+    geoId: "102095887"        # "California" per LinkedIn typeahead = LA County/Area
+    baseline_rows: 300
+    hourly_rows: 100
   - name: seattle
     location: "Greater Seattle Area"
     geoId: "90000091"
@@ -42,7 +50,10 @@ baseline:
     publishedAt: r86400       # past 24h
 
 hourly:
-  # Every 2 hours, 7am-9pm PST → 8 runs/day
+  # Every 2 hours, 7am-9pm PST → 8 runs/day.
+  # publishedAt MUST be one of: "", r86400 (24h), r604800 (7d), r2592000 (30d).
+  # The actor's schema rejects shorter windows — use r86400 here and rely on
+  # dedup via seen-jobs.tsv to skip previously-fetched postings.
   schedule_pst: ["07:00", "09:00", "11:00", "13:00", "15:00", "17:00", "19:00", "21:00"]
   params:
-    publishedAt: r7200        # past 2h window w/ overlap
+    publishedAt: r86400

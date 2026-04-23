@@ -203,15 +203,27 @@ export async function preFilterJob(job, systemPrompt, candidateSummary, client, 
   let text;
   try {
     if (providerIsAnthropic) {
-      // Legacy path: client is an Anthropic instance with messages.create
+      // Legacy path: client is an Anthropic instance with messages.create.
+      // max_tokens needs headroom for extended-thinking models (MiniMax-M2.7,
+      // Anthropic with thinking on). Observed: thinking block alone can
+      // consume 500-1000 tokens analyzing the candidate vs job match, and
+      // without headroom the model gets truncated before emitting the text
+      // block at all — resulting in a 0-char response.
       const response = await client.messages.create({
         model: (config && config.model) || HAIKU_MODEL,
-        max_tokens: 120,
+        max_tokens: 1500,
         temperature: 0,
         system: systemBlocks,
         messages: [{ role: 'user', content: userMessage }],
       });
-      text = (response.content?.[0]?.text || '').trim();
+      // Iterate ALL content blocks and concatenate text-bearing ones.
+      // content[0].text is only correct for non-thinking models; extended-
+      // thinking models return [{type:'thinking',...},{type:'text',text:'...'}].
+      text = (response.content || [])
+        .filter(b => typeof b?.text === 'string')
+        .map(b => b.text)
+        .join('\n')
+        .trim();
     } else {
       // OpenAI-compatible path (MiniMax, OpenAI, DeepSeek, etc.)
       const systemText = systemBlocks.map(b => b.text).join('\n\n');
