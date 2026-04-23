@@ -74,3 +74,75 @@ test('extractPdfText: throws with install hint when pdftotext binary missing', a
     /pdftotext/i,
   );
 });
+
+// ── e2e tests: wire --mode=picker into assemble-cv.mjs ───────────────────────
+
+import { spawn } from 'node:child_process';
+import { writeFileSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const REPO_ROOT = resolve(__dirname, '..');
+
+function runAssembleCv(args, env = {}) {
+  return new Promise((res, rej) => {
+    const proc = spawn('node', ['assemble-cv.mjs', ...args], {
+      cwd: REPO_ROOT,
+      env: { ...process.env, ...env },
+    });
+    let stdout = '', stderr = '';
+    proc.stdout.on('data', c => { stdout += c.toString(); });
+    proc.stderr.on('data', c => { stderr += c.toString(); });
+    proc.on('close', code => res({ code, stdout, stderr }));
+    proc.on('error', rej);
+  });
+}
+
+test('assemble-cv --mode=picker writes extracted PDF text to cv.tailored.md', async () => {
+  // Use a throwaway JD file so we don't touch real jds/
+  const tmp = mkdtempSync(join(tmpdir(), 'picker-e2e-'));
+  const jdPath = join(tmp, 'test-jd.md');
+  writeFileSync(jdPath, '# Test JD\nSenior Backend Engineer at Acme. Go, distributed systems, Kafka.');
+
+  try {
+    const { code, stderr } = await runAssembleCv(
+      [`--jd=${jdPath}`, '--mode=picker', '--archetype=backend'],
+    );
+    assert.equal(code, 0, `expected exit 0, got ${code}. stderr:\n${stderr}`);
+
+    const cv = readFileSync(resolve(REPO_ROOT, 'cv.tailored.md'), 'utf-8');
+    assert.ok(cv.length > 100, 'cv.tailored.md should contain extracted PDF text');
+
+    const meta = JSON.parse(readFileSync(resolve(REPO_ROOT, '.cv-tailored-meta.json'), 'utf-8'));
+    assert.equal(meta.mode, 'picker');
+    assert.equal(meta.archetype, 'backend');
+    assert.ok(meta.source_pdf);
+    assert.ok(meta.extracted_at);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('assemble-cv --mode=picker writes placeholder when archetype unmapped', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'picker-e2e-'));
+  const jdPath = join(tmp, 'test-jd.md');
+  writeFileSync(jdPath, '# Test JD\nSome role.');
+
+  try {
+    const { code } = await runAssembleCv(
+      [`--jd=${jdPath}`, '--mode=picker', '--archetype=totally_made_up'],
+    );
+    assert.equal(code, 0);
+
+    const cv = readFileSync(resolve(REPO_ROOT, 'cv.tailored.md'), 'utf-8');
+    assert.ok(cv.includes('totally_made_up'), 'placeholder should name the archetype');
+    assert.ok(cv.startsWith('#'), 'placeholder should be markdown heading');
+
+    const meta = JSON.parse(readFileSync(resolve(REPO_ROOT, '.cv-tailored-meta.json'), 'utf-8'));
+    assert.equal(meta.mode, 'picker');
+    assert.equal(meta.archetype, 'totally_made_up');
+    assert.equal(meta.missing, true);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});

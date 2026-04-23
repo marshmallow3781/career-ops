@@ -24,6 +24,8 @@ import {
 } from './assemble-llm.mjs';
 import { computeJdFingerprint } from './lib/dedup.mjs';
 import { getDb, upsertCvArtifact } from './lib/db.mjs';
+import { resolvePickerResume, extractPdfText, buildPlaceholderCv } from './lib/picker.mjs';
+import yaml from 'js-yaml';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SOURCES_ROOT = resolve(__dirname, 'experience_source');
@@ -62,21 +64,68 @@ export function buildCvPaths({ company_slug, title_slug, job_id }) {
 }
 
 function parseArgs(argv) {
-  const out = { jd: null, archetype: null, feedback: null };
+  const out = { jd: null, archetype: null, feedback: null, mode: 'assembler' };
   for (const a of argv) {
     if (a.startsWith('--jd=')) out.jd = a.split('=')[1];
     else if (a.startsWith('--archetype=')) out.archetype = a.split('=')[1];
     else if (a.startsWith('--feedback=')) out.feedback = a.split('=')[1];
+    else if (a.startsWith('--mode=')) out.mode = a.split('=')[1];
   }
   return out;
+}
+
+async function runPickerMode({ jdPath, archetypeOverride }) {
+  const jdText = readFileSync(resolve(jdPath), 'utf-8');
+
+  // Load picker config from profile.yml (not loadConfig — we want raw YAML).
+  const profile = yaml.load(readFileSync(PROFILE_PATH, 'utf-8'));
+  const pickerCfg = profile?.cv?.picker || { resumes_dir: 'resumes', archetype_map: {} };
+  if (pickerCfg.resumes_dir && !pickerCfg.resumes_dir.startsWith('/')) {
+    pickerCfg.resumes_dir = resolve(__dirname, pickerCfg.resumes_dir);
+  }
+
+  const archetype = archetypeOverride || await classifyArchetype(jdText);
+
+  const resolved = resolvePickerResume(archetype, pickerCfg);
+
+  const meta = {
+    mode: 'picker',
+    archetype,
+    // Spec §5: when the PDF is missing, source_pdf carries the *expected*
+    // filename (or null for unmapped archetypes) — not a path to a
+    // nonexistent file. When the PDF exists, carry the full repo-relative
+    // path so downstream tools can find it without re-resolving.
+    source_pdf: null,
+    extracted_at: new Date().toISOString(),
+  };
+
+  let cvText;
+  if (resolved.missing) {
+    cvText = buildPlaceholderCv(archetype, resolved.filename);
+    meta.missing = true;
+    meta.source_pdf = resolved.filename;  // null when unmapped, filename otherwise
+  } else {
+    cvText = await extractPdfText(resolved.path);
+    meta.source_pdf = resolved.path;
+  }
+
+  writeFileSync(OUT_TAILORED, cvText);
+  writeFileSync(OUT_META, JSON.stringify(meta, null, 2));
+  console.error(`[picker] archetype=${archetype} → ${resolved.filename || '(placeholder)'}`);
 }
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.jd) {
-    console.error('Usage: node assemble-cv.mjs --jd=<path> [--archetype=...] [--feedback=...]');
+    console.error('Usage: node assemble-cv.mjs --jd=<path> [--archetype=...] [--feedback=...] [--mode=picker|assembler]');
     process.exit(1);
   }
+
+  if (args.mode === 'picker') {
+    await runPickerMode({ jdPath: args.jd, archetypeOverride: args.archetype });
+    return;
+  }
+
   let excludeBullets = [];
   if (args.feedback) {
     try {
