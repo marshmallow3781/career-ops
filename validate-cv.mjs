@@ -10,9 +10,11 @@
  *   1 = one or more violations (errors written as JSON to stderr and to .cv-tailored-errors.json)
  */
 
+import 'dotenv/config';
 import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { updateCvValidation } from './lib/db.mjs';
 import {
   checkCompanyCoverage,
   checkBulletProvenance,
@@ -64,16 +66,47 @@ async function main() {
     ...checkChronologicalOrder(markdown, sortedCompanies),
   ];
 
-  if (errors.length > 0) {
-    const payload = { ok: false, errors };
+  const result = errors.length > 0
+    ? { ok: false, errors }
+    : { ok: true, checks_passed: 3 };
+
+  if (!result.ok) {
     const errorsPath = resolve(__dirname, '.cv-tailored-errors.json');
-    writeFileSync(errorsPath, JSON.stringify(payload, null, 2));
-    console.error(JSON.stringify(payload, null, 2));
-    process.exit(1);
+    writeFileSync(errorsPath, JSON.stringify(result, null, 2));
+    console.error(JSON.stringify(result, null, 2));
+  } else {
+    console.log(JSON.stringify(result, null, 2));
   }
 
-  console.log(JSON.stringify({ ok: true, checks_passed: 3 }, null, 2));
-  process.exit(0);
+  // Persist validation result to cv_artifacts (if the user ran assemble-cv.mjs,
+  // a cv_artifacts doc exists keyed by job_id derived from the same JD).
+  if (result.ok !== undefined) {
+    const fs = await import('node:fs');
+    let job_id = null;
+    try {
+      const metaRaw = fs.readFileSync('.cv-tailored-meta.json', 'utf-8');
+      const meta = JSON.parse(metaRaw);
+      if (meta.jd) {
+        const jdText = fs.readFileSync(meta.jd, 'utf-8');
+        const { deriveJobIdForCv } = await import('./assemble-cv.mjs');
+        const jdSlug = meta.jd.replace(/^.*\//, '').replace(/\.md$/, '');
+        const derived = await deriveJobIdForCv({ jdText, jdSlug });
+        job_id = derived.job_id;
+      }
+    } catch (err) {
+      console.error(`[validate-cv] could not resolve job_id for validation record: ${err.message}`);
+    }
+    if (job_id) {
+      const status = result.ok ? 'ok' : (result.errors?.[0]?.type || 'failed');
+      try {
+        await updateCvValidation(job_id, status, result.errors || []);
+      } catch (err) {
+        console.error(`[validate-cv] failed to update cv_artifacts.validation_status: ${err.message}`);
+      }
+    }
+  }
+
+  process.exit(result.ok ? 0 : 1);
 }
 
 main().catch(err => {
