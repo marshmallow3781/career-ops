@@ -42,7 +42,11 @@
     "apify-client": "^2.9.5",
     "dotenv": "^16.4.5",
     "js-yaml": "^4.1.1",
+    "mongodb": "^7.2.0",
     "openai": "^6.34.0",
     "playwright": "^1.58.1"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^11.0.1"
   }
 }
