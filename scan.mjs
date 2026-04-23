@@ -84,6 +84,11 @@ function parseGreenhouse(json, companyName) {
     company: companyName,
     location: j.location?.name || '',
     api_type: 'greenhouse',
+    // Greenhouse returns ISO 8601 for both. first_published = when it went live;
+    // updated_at = last modification. Use first_published as "posted_at" since
+    // that's what "last 24h" semantically means. Fall back to updated_at.
+    posted_at: j.first_published || j.updated_at || null,
+    updated_at: j.updated_at || null,
   }));
 }
 
@@ -95,6 +100,9 @@ function parseAshby(json, companyName) {
     company: companyName,
     location: j.location || '',
     api_type: 'ashby',
+    // Ashby's public posting API returns publishedDate + updatedAt as ISO.
+    posted_at: j.publishedDate || j.updatedAt || null,
+    updated_at: j.updatedAt || null,
   }));
 }
 
@@ -106,6 +114,10 @@ function parseLever(json, companyName) {
     company: companyName,
     location: j.categories?.location || '',
     api_type: 'lever',
+    // Lever's public postings API returns createdAt as a Unix timestamp in ms.
+    // Convert to ISO for a uniform posted_at shape across parsers.
+    posted_at: j.createdAt ? new Date(j.createdAt).toISOString() : null,
+    updated_at: null,  // Lever dropped updated_at from the public feed
   }));
 }
 
@@ -274,11 +286,60 @@ async function parallelFetch(tasks, limit) {
 
 // ── Main ────────────────────────────────────────────────────────────
 
+/**
+ * Human-readable relative age, e.g. "2h ago", "3d ago".
+ */
+function formatAge(iso) {
+  if (!iso) return 'unknown';
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return 'unknown';
+  const deltaMs = Date.now() - t;
+  const mins = Math.round(deltaMs / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
+
+/**
+ * Auto-compute the time window for filtering. Mirrors apify-scan.mjs:
+ *   - 7am PST → 24h window (baseline: "catch yesterday's full backlog")
+ *   - any other hour → 2h window (catches only recent additions)
+ * `--since-hours=N` CLI flag overrides for testing.
+ */
+function resolveSinceHours(argv) {
+  const flag = argv.find(a => a.startsWith('--since-hours='));
+  if (flag) {
+    const n = parseFloat(flag.split('=')[1]);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  const hourStr = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hour12: false });
+  const hourNum = parseInt(hourStr, 10);
+  return hourNum === 7 ? 24 : 2;
+}
+
+/**
+ * Drop jobs with posted_at older than sinceHours. Jobs with no posted_at
+ * are kept (some parsers or older postings may lack the field — don't
+ * silently exclude them from the scanner).
+ */
+function filterByPostedAt(jobs, sinceHours) {
+  if (!sinceHours || sinceHours <= 0) return jobs;
+  const cutoff = Date.now() - sinceHours * 3600 * 1000;
+  return jobs.filter(j => {
+    if (!j.posted_at) return true;  // no timestamp → keep, don't silently drop
+    const t = Date.parse(j.posted_at);
+    return Number.isFinite(t) && t >= cutoff;
+  });
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
   const companyFlag = args.indexOf('--company');
   const filterCompany = companyFlag !== -1 ? args[companyFlag + 1]?.toLowerCase() : null;
+  const sinceHours = resolveSinceHours(args);
 
   // 1. Read portals.yml
   if (!existsSync(PORTALS_PATH)) {
@@ -300,6 +361,7 @@ async function main() {
   const skippedCount = companies.filter(c => c.enabled !== false).length - targets.length;
 
   console.log(`Scanning ${targets.length} companies via API (${skippedCount} skipped — no API detected)`);
+  console.log(`Time window: last ${sinceHours}h (auto: ${sinceHours === 24 ? '7am PST baseline' : 'off-peak'}; override with --since-hours=N)`);
   if (dryRun) console.log('(dry run — no files will be written)\n');
 
   // 3. Load dedup sets
@@ -314,12 +376,16 @@ async function main() {
   const newOffers = [];
   const errors = [];
 
+  let totalStale = 0;  // jobs older than sinceHours window
+
   const tasks = targets.map(company => async () => {
     const { type, url } = company._api;
     try {
       const json = await fetchJson(url);
-      const jobs = PARSERS[type](json, company.name);
-      totalFound += jobs.length;
+      const allJobs = PARSERS[type](json, company.name);
+      totalFound += allJobs.length;
+      const jobs = filterByPostedAt(allJobs, sinceHours);
+      totalStale += (allJobs.length - jobs.length);
 
       for (const job of jobs) {
         if (!titleFilter(job.title)) {
@@ -367,6 +433,7 @@ async function main() {
   console.log(`${'━'.repeat(45)}`);
   console.log(`Companies scanned:     ${targets.length}`);
   console.log(`Total jobs found:      ${totalFound}`);
+  console.log(`Outside time window:   ${totalStale} skipped (posted_at older than ${sinceHours}h)`);
   console.log(`Filtered by title:     ${totalFiltered} removed`);
   console.log(`Duplicates:            ${totalDupes} skipped`);
   console.log(`New offers added:      ${newOffers.length}`);
@@ -381,7 +448,8 @@ async function main() {
   if (newOffers.length > 0) {
     console.log('\nNew offers:');
     for (const o of newOffers) {
-      console.log(`  + ${o.company} | ${o.title} | ${o.location || 'N/A'}`);
+      const age = o.posted_at ? formatAge(o.posted_at) : 'unknown age';
+      console.log(`  + ${o.company} | ${o.title} | ${o.location || 'N/A'} | 🕐 ${age}`);
     }
     if (dryRun) {
       console.log('\n(dry run — run without --dry-run to save results)');
