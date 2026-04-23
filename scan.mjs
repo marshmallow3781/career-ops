@@ -17,12 +17,13 @@
 
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
 import yaml from 'js-yaml';
-import { computeJdFingerprint, normalizeCompany, normalizeTitle, appendSeenJobs } from './lib/dedup.mjs';
+import { computeJdFingerprint, normalizeCompany, normalizeTitle, appendSeenJobs, isCompanyBlacklisted } from './lib/dedup.mjs';
 const parseYaml = yaml.load;
 
 // ── Config ──────────────────────────────────────────────────────────
 
 const PORTALS_PATH = 'portals.yml';
+const PROFILE_PATH = 'config/profile.yml';
 const SCAN_HISTORY_PATH = 'data/scan-history.tsv';
 const SEEN_JOBS_PATH = 'data/seen-jobs.tsv';
 const PIPELINE_PATH = 'data/pipeline.md';
@@ -175,6 +176,23 @@ export function buildLocationFilter(cfg) {
     const lc = location.toLowerCase();
     if (deny.some(d => lc.includes(d))) return false;
     return allow.some(a => lc.includes(a));
+  };
+}
+
+/**
+ * Build a predicate that returns true if a company is blacklisted (should
+ * be dropped). Wraps isCompanyBlacklisted for consistency with the other
+ * filter-builder helpers in this file.
+ *
+ * Returns false for null / empty company names — don't drop on missing data;
+ * let other filters (location) handle defensively.
+ */
+export function buildBlacklistFilter(blacklist) {
+  const entries = blacklist || [];
+  if (entries.length === 0) return () => false;  // no-op when empty
+  return (company) => {
+    if (!company) return false;
+    return isCompanyBlacklisted(company, entries);
   };
 }
 
@@ -375,9 +393,18 @@ async function main() {
   }
 
   const config = parseYaml(readFileSync(PORTALS_PATH, 'utf-8'));
+
+  // Load candidate profile for company_blacklist (optional — empty list if missing)
+  let blacklist = [];
+  if (existsSync(PROFILE_PATH)) {
+    const profile = parseYaml(readFileSync(PROFILE_PATH, 'utf-8'));
+    blacklist = profile?.target_roles?.company_blacklist || [];
+  }
+
   const companies = config.tracked_companies || [];
   const titleFilter = buildTitleFilter(config.title_filter);
   const locationFilter = buildLocationFilter(config.location_filter);
+  const blacklistFilter = buildBlacklistFilter(blacklist);
 
   // 2. Filter to enabled companies with detectable APIs
   const targets = companies
@@ -406,6 +433,7 @@ async function main() {
 
   let totalStale = 0;  // jobs older than sinceHours window
   let totalLocationFiltered = 0;
+  let totalBlacklisted = 0;
 
   const tasks = targets.map(company => async () => {
     const { type, url } = company._api;
@@ -417,6 +445,10 @@ async function main() {
       totalStale += (allJobs.length - jobs.length);
 
       for (const job of jobs) {
+        if (blacklistFilter(job.company)) {
+          totalBlacklisted++;
+          continue;
+        }
         if (!titleFilter(job.title)) {
           totalFiltered++;
           continue;
@@ -467,6 +499,7 @@ async function main() {
   console.log(`Companies scanned:     ${targets.length}`);
   console.log(`Total jobs found:      ${totalFound}`);
   console.log(`Outside time window:   ${totalStale} skipped (posted_at older than ${sinceHours}h)`);
+  console.log(`Blacklisted companies: ${totalBlacklisted} skipped`);
   console.log(`Outside location:      ${totalLocationFiltered} skipped (no allow match OR deny match)`);
   console.log(`Filtered by title:     ${totalFiltered} removed`);
   console.log(`Duplicates:            ${totalDupes} skipped`);

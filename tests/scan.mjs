@@ -55,3 +55,49 @@ test('buildLocationFilter: no allow match → drop', () => {
   assert.equal(f('Austin, TX'), false);
   assert.equal(f('New York City, NY'), false);
 });
+
+import { buildBlacklistFilter } from '../scan.mjs';
+
+test('buildBlacklistFilter: empty list → permissive (never blocks)', () => {
+  const f = buildBlacklistFilter([]);
+  assert.equal(f('Acme'), false);       // false = not blacklisted = pass
+  assert.equal(f('Turing'), false);
+  assert.equal(f(null), false);
+});
+
+test('buildBlacklistFilter: undefined list → permissive', () => {
+  const f = buildBlacklistFilter(undefined);
+  assert.equal(f('Anything'), false);
+});
+
+test('buildBlacklistFilter: exact match (case-insensitive)', () => {
+  const f = buildBlacklistFilter(['Turing', 'Jobs via Dice']);
+  assert.equal(f('Turing'), true);
+  assert.equal(f('turing'), true);
+  assert.equal(f('TURING'), true);
+  assert.equal(f('Jobs via Dice'), true);
+});
+
+test('buildBlacklistFilter: substring match via normalizeCompany', () => {
+  // "Walmart" in the list should also block "Walmart Labs", "Walmart Connect", etc.
+  const f = buildBlacklistFilter(['Walmart']);
+  assert.equal(f('Walmart Labs'), true);
+  assert.equal(f('Walmart Connect'), true);
+  assert.equal(f('Intel'), false);
+});
+
+test('buildBlacklistFilter: non-matching company passes (returns false)', () => {
+  const f = buildBlacklistFilter(['Turing', 'CyberCoders']);
+  assert.equal(f('Anthropic'), false);
+  assert.equal(f('Stripe'), false);
+});
+
+test('buildBlacklistFilter: empty / null company → pass', () => {
+  // Can't evaluate a missing company against blacklist — don't silently
+  // drop, let downstream filters handle it (location filter fails null
+  // anyway, so this is defensive consistency).
+  const f = buildBlacklistFilter(['Turing']);
+  assert.equal(f(''), false);
+  assert.equal(f(null), false);
+  assert.equal(f(undefined), false);
+});
