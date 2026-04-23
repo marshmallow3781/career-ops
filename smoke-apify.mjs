@@ -270,6 +270,19 @@ async function main() {
     else bucketCounts.score_lt_4++;
   }
 
+  // Slim representation for jobs that fell out at each stage (keeps JSON small
+  // but gives full audit trail: title, company, url, posted, reason for drop).
+  const slim = (j) => ({
+    linkedin_id: j.linkedin_id,
+    title: j.title,
+    company: j.company,
+    location: j.location,
+    url: j.url,
+    posted_time_relative: j.posted_time_relative,
+    posted_hours_ago: j.posted_hours_ago,
+    source_metro: j.source_metro,
+  });
+
   writeFileSync(jsonPath, JSON.stringify({
     per_metro: perMetro,
     clamp_hours: args.clampHours,
@@ -284,6 +297,10 @@ async function main() {
     haiku_scored: scored.length,
     bucket_counts: bucketCounts,
     haiku_seconds: haikuMs / 1000,
+    // Audit trail — every drop stage is persisted so the user can review
+    // whether the filters are cutting correctly.
+    dropped_blacklist: blacklisted.map(slim),
+    dropped_title_filter: titleCut.map(slim),
     ranked_jobs: scored,
   }, null, 2));
 
