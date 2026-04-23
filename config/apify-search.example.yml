@@ -7,9 +7,12 @@ api_token_env: APIFY_API_TOKEN
 
 default_params:
   title: "Software Engineer"
-  workType: null              # all
-  contractType: null          # all (Haiku filters out Contract/C2C)
-  experienceLevel: null       # all (title filter + Haiku handle seniority)
+  # workType is a REQUIRED string (actor rejects null). Enum: "1" = Full-time,
+  # "2" / "3" are Part-time / Contract / Internship (actor returns the enum
+  # in its error message if you pass an invalid value).
+  workType: "1"
+  # contractType and experienceLevel are left unset entirely. The actor treats
+  # missing fields as "all" but rejects explicit nulls.
   proxy:
     useApifyProxy: true
     apifyProxyGroups: ["RESIDENTIAL"]

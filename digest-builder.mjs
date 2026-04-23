@@ -136,19 +136,20 @@ export function buildCandidateSummary(profile, sources) {
   return lines.join('\n');
 }
 
-export const SYSTEM_PROMPT = `You are a job-fit pre-filter for a multi-facet candidate who is open to roles in FRONTEND, BACKEND, INFRA, MACHINE_LEARNING, or FULLSTACK.
+export const SYSTEM_PROMPT = `You are a job-fit pre-filter for a multi-facet candidate who is open to roles in FRONTEND, BACKEND, INFRA, MACHINE_LEARNING, APPLIED_AI, or FULLSTACK.
 
 Given the candidate's profile and a job description, output JSON with:
-- archetype: one of "frontend" | "backend" | "infra" | "machine_learning" | "fullstack"
+- archetype: one of "frontend" | "backend" | "infra" | "machine_learning" | "applied_ai" | "fullstack"
 - score: integer 0-10 — how well candidate matches THIS archetype
 - reason: one-line ≤100 chars justifying the score
 
 ARCHETYPE CLASSIFICATION NOTES:
-- "AI Engineer" / "AI-Native Engineer" / "LLM Engineer" / "Agent Engineer" / "Applied AI"
-  roles → classify as "fullstack" (these are typically fullstack + LLM combinations).
-  Score on the combination of candidate's fullstack breadth AND their LLM/agent experience.
+- "Applied AI" / "AI Engineer" / "AI-Native Engineer" / "LLM Engineer" / "Agent Engineer"
+  → "applied_ai". These roles ship production AI/LLM/agent SYSTEMS end-to-end (backend
+  services + tool calling + evaluation + observability). Score on the candidate's
+  combination of backend breadth AND LLM/agent/evaluation experience.
 - "ML Engineer" (classical ML, XGBoost, feature stores, recommender systems) → "machine_learning".
-- "Platform Engineer" / "SRE" / "DevOps" / "Data Platform" → "infra".
+- "Platform Engineer" / "SRE" / "DevOps" / "Data Platform" / "ML Platform" → "infra".
 - "Backend Engineer" (distributed systems, APIs) → "backend".
 - "Frontend Engineer" (React, UI, design systems) → "frontend".
 - "Fullstack Engineer" without LLM/AI focus → "fullstack".
@@ -258,7 +259,7 @@ export async function preFilterJob(job, systemPrompt, candidateSummary, client, 
   }
 
   // Validate + clamp
-  const validArchetypes = ['frontend', 'backend', 'infra', 'machine_learning', 'fullstack'];
+  const validArchetypes = ['frontend', 'backend', 'infra', 'machine_learning', 'applied_ai', 'fullstack'];
   const archetype = validArchetypes.includes(parsed.archetype) ? parsed.archetype : 'unknown';
   let score = parsed.score;
   if (typeof score !== 'number') score = null;
