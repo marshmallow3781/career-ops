@@ -290,12 +290,26 @@ Metadata for per-JD tailored CVs. Bodies live on disk at `cvs/{company-slug}/{ti
 - Database user: least-privilege role sufficient (`readWrite` on `career-ops` db only).
 - Network access: `0.0.0.0/0` (password-protected; simplest for a personal project with a dynamic IP).
 
-**Credentials via `.env`:**
+**Credentials via `.env`** — parts, not a single URI, so the password never has to be URL-encoded manually (the driver handles it):
 
 ```
-MONGODB_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority&appName=...
+MONGODB_USER=brick_db_dev_user
+MONGODB_PASSWORD=<the password>
+MONGODB_CLUSTER=brick-free-cluster0.suun1hz.mongodb.net
+MONGODB_APP_NAME=brick-free-Cluster0
 MONGODB_DATABASE=career-ops
 ```
+
+`lib/db.mjs` assembles the URI at connect time:
+
+```js
+const uri = `mongodb+srv://${encodeURIComponent(process.env.MONGODB_USER)}:` +
+            `${encodeURIComponent(process.env.MONGODB_PASSWORD)}` +
+            `@${process.env.MONGODB_CLUSTER}/?retryWrites=true&w=majority` +
+            `&appName=${process.env.MONGODB_APP_NAME}`;
+```
+
+This also means the full URI never appears in any file on disk — only the parts.
 
 ## 7. Driver + code organization
 
