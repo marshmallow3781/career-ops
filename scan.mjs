@@ -151,6 +151,33 @@ function buildTitleFilter(titleFilter) {
   };
 }
 
+/**
+ * Build a predicate that tests whether a job's location string passes the
+ * allow/deny substring rules. Case-insensitive.
+ *
+ * Semantics:
+ * - Missing/empty allow list → permissive (everything passes). Lets
+ *   portals.yml omit location_filter without breaking the scanner.
+ * - Missing or empty location → fail closed (can't verify US-ok).
+ * - Pass iff (any allow substring matches) AND (no deny substring matches).
+ * - Deny wins: "Remote - EU" with allow=["Remote"] deny=["Remote - EU"]
+ *   → false.
+ * - Multi-location pipe strings (e.g. "SF, CA | London, UK") check against
+ *   the whole string — any allow substring anywhere passes, unless a deny
+ *   substring is also present.
+ */
+export function buildLocationFilter(cfg) {
+  const allow = (cfg?.allow || []).map(s => s.toLowerCase());
+  const deny  = (cfg?.deny  || []).map(s => s.toLowerCase());
+  if (allow.length === 0) return () => true;
+  return (location) => {
+    if (!location || typeof location !== 'string') return false;
+    const lc = location.toLowerCase();
+    if (deny.some(d => lc.includes(d))) return false;
+    return allow.some(a => lc.includes(a));
+  };
+}
+
 // ── Dedup ───────────────────────────────────────────────────────────
 
 function loadSeenUrls() {
