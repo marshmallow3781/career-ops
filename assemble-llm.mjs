@@ -163,7 +163,8 @@ ${jdText.slice(0, 4000)}`;
   try {
     const response = await client.messages.create({
       model: DEFAULT_MODEL,
-      max_tokens: 600,
+      // Headroom for thinking-model output budget (see classifyArchetype comment).
+      max_tokens: 1500,
       system: 'You analyze job descriptions to extract the role\'s true nature. Output a single valid JSON object and nothing else. No prose, no markdown fences.',
       messages: [{ role: 'user', content: basePrompt }],
     });
@@ -186,7 +187,7 @@ ${jdText.slice(0, 4000)}`;
   try {
     const response = await client.messages.create({
       model: DEFAULT_MODEL,
-      max_tokens: 600,
+      max_tokens: 1500,
       system: 'You analyze job descriptions. Output ONLY a single valid JSON object. No markdown. No prose. No explanation.',
       messages: [{
         role: 'user',
@@ -225,7 +226,14 @@ ${jdText.slice(0, 4000)}`;
 export async function classifyArchetype(jdText, client = defaultClient()) {
   const response = await client.messages.create({
     model: DEFAULT_MODEL,
-    max_tokens: 50,
+    // Extended-thinking models (MiniMax-M2.7, Anthropic w/ thinking on) can
+    // consume 500-1000 tokens in the thinking block before emitting any text.
+    // If the answer is truncated by max_tokens before the text block, the
+    // lenient parser + alias search both fall through to a final throw.
+    // 1500 gives thinking enough headroom to actually produce the one-word
+    // answer we ask for. Cost impact is negligible since we only bill for
+    // tokens used, not the budget.
+    max_tokens: 1500,
     system: 'You are a strict classifier. Output EXACTLY one word from this list and NOTHING ELSE: frontend, backend, infra, machine_learning, applied_ai, ml_platform, fullstack. No explanation, no reasoning, no punctuation, no quotes, no markdown.',
     messages: [{
       role: 'user',
