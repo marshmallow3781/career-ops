@@ -24,24 +24,43 @@ import {
   computeJdFingerprint,
   loadSeenJobs,
   appendSeenJobs,
+  isCompanyBlacklisted,
 } from './lib/dedup.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH  = resolve(__dirname, 'config/apify-search.yml');
+const PROFILE_PATH = resolve(__dirname, 'config/profile.yml');
 const SEEN_PATH    = resolve(__dirname, 'data/seen-jobs.tsv');
 const NEW_DIR      = resolve(__dirname, 'data');
+
+/**
+ * Read a job field from an Apify actor item, supporting both the current
+ * schema (jobUrl / companyName) and the legacy schema (url / company).
+ * The curious_coder/linkedin-jobs-scraper actor emits jobUrl/companyName
+ * as of v2.1.3; older test fixtures use url/company.
+ */
+function getJobField(j, newKey, oldKey) {
+  if (j[newKey] !== undefined && j[newKey] !== null) return j[newKey];
+  return j[oldKey];
+}
 
 /**
  * Scan one location via the Apify actor.
  * Returns { metro, items, error? }.
  */
 async function scanOneLocation({ location, params, client, actorId }) {
-  const input = {
-    ...params.defaultParams,
-    location: location.location,
-    publishedAt: params.publishedAt,
-    rows: params.rows,
-  };
+  // Filter nulls from defaultParams — the actor's schema rejects null fields
+  // outright (e.g. workType, contractType, experienceLevel when "all" is
+  // intended) rather than treating null as "omit".
+  const input = {};
+  for (const [k, v] of Object.entries(params.defaultParams || {})) {
+    if (v !== null && v !== undefined) input[k] = v;
+  }
+  input.location = location.location;
+  if (location.geoId) input.geoId = location.geoId;
+  input.publishedAt = params.publishedAt;
+  input.rows = params.rows;
+
   const run = await client.actor(actorId).call(input);
   const { items } = await client.dataset(run.defaultDatasetId).listItems();
   return { metro: location.name, items };
@@ -49,8 +68,12 @@ async function scanOneLocation({ location, params, client, actorId }) {
 
 /**
  * Main orchestrator (injectable for tests).
+ *
+ * @param {string[]} [opts.blacklist] — company names to filter out before
+ *   dedup/writing. Matched via isCompanyBlacklisted (substring on normalized
+ *   kebab-case). Empty/missing → no filtering.
  */
-export async function runApifyScan({ config, client, seenJobsPath, apifyNewPath, hourOverride, dryRun = false }) {
+export async function runApifyScan({ config, client, seenJobsPath, apifyNewPath, hourOverride, dryRun = false, blacklist = [] }) {
   const hour = hourOverride !== undefined
     ? hourOverride
     : new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hour12: false });
@@ -91,17 +114,34 @@ export async function runApifyScan({ config, client, seenJobsPath, apifyNewPath,
     }
     const items = r.value.items || [];
     let newCount = 0;
+    let blacklistedCount = 0;
     const nowIso = new Date().toISOString();
     for (const j of items) {
-      const linkedin_id = extractLinkedInId(j.url);
+      const jobUrl      = getJobField(j, 'jobUrl', 'url');
+      const companyName = getJobField(j, 'companyName', 'company');
+      const title       = getJobField(j, 'title', 'title');
+      const jobLocation = getJobField(j, 'location', 'location');
+      const publishedAt = getJobField(j, 'publishedAt', 'posted_at');
+
+      const linkedin_id = extractLinkedInId(jobUrl);
       if (!linkedin_id) continue;
+
+      // Blacklist check — done BEFORE dedup work so blacklisted companies
+      // don't pollute seen-jobs.tsv. Filtering at retrieval time means we
+      // never store them, never try to re-dedup them next run, and never
+      // pass them to the Haiku pre-filter (which would waste tokens).
+      if (isCompanyBlacklisted(companyName, blacklist)) {
+        blacklistedCount++;
+        continue;
+      }
+
       if (seen.linkedinIds.has(linkedin_id)) continue;
 
       const fingerprint = j.description ? computeJdFingerprint(j.description) : '(none)';
       if (fingerprint !== '(none)' && seen.fingerprints.has(fingerprint)) continue;
 
-      const company_slug = normalizeCompany(j.company || '');
-      const title_normalized = normalizeTitle(j.title || '');
+      const company_slug = normalizeCompany(companyName || '');
+      const title_normalized = normalizeTitle(title || '');
       const tck = `${company_slug}|${title_normalized}`;
       if (company_slug && title_normalized && seen.titleCompanyKeys.has(tck)) continue;
 
@@ -112,18 +152,18 @@ export async function runApifyScan({ config, client, seenJobsPath, apifyNewPath,
 
       newJobs.push({
         linkedin_id,
-        url: j.url,
-        title: j.title,
-        company: j.company,
+        url: jobUrl,
+        title,
+        company: companyName,
         company_slug,
-        location: j.location || loc.location,
+        location: jobLocation || loc.location,
         description: (j.description || '').slice(0, 4000),
-        posted_at: j.publishedAt || j.posted_at || '',
+        posted_at: publishedAt || '',
         source_metro: loc.name,
       });
       newRows.push({
         linkedin_id,
-        url: j.url,
+        url: jobUrl,
         company_slug,
         title_normalized,
         first_seen_utc: nowIso,
@@ -137,7 +177,7 @@ export async function runApifyScan({ config, client, seenJobsPath, apifyNewPath,
       });
       newCount++;
     }
-    sources.push({ metro: loc.name, fetched: items.length, new: newCount });
+    sources.push({ metro: loc.name, fetched: items.length, new: newCount, blacklisted: blacklistedCount });
   }
 
   if (!dryRun && newRows.length > 0) {
@@ -176,6 +216,16 @@ async function main() {
     process.exit(1);
   }
 
+  // Load profile.yml for company_blacklist (optional — empty list if missing).
+  let blacklist = [];
+  if (existsSync(PROFILE_PATH)) {
+    const profile = yaml.load(readFileSync(PROFILE_PATH, 'utf-8'));
+    blacklist = profile?.target_roles?.company_blacklist || [];
+    if (blacklist.length > 0) {
+      console.error(`[apify-scan] Loaded ${blacklist.length} blacklisted companies from profile.yml`);
+    }
+  }
+
   const client = dryRun ? null : new ApifyClient({ token });
 
   const apifyNewPath = join(NEW_DIR, `apify-new-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
@@ -186,6 +236,7 @@ async function main() {
     seenJobsPath: SEEN_PATH,
     apifyNewPath,
     dryRun,
+    blacklist,
   });
 
   console.log(JSON.stringify(result, null, 2));

@@ -152,3 +152,157 @@ test('runApifyScan: one metro failure does not block others (Promise.allSettled)
     assert.match(result.errors[0].error, /rate limit/);
   });
 });
+
+test('runApifyScan: reads new actor schema (jobUrl / companyName)', async () => {
+  await withTempWorkspace(async (dir) => {
+    const config = {
+      actor_id: 'TEST_ACTOR',
+      api_token_env: 'FAKE',
+      default_params: { title: 'Software Engineer', proxy: {} },
+      locations: [
+        { name: 'california', location: 'California, United States', baseline_rows: 500, hourly_rows: 200 },
+      ],
+      baseline: { schedule_pst: '07:00', params: { publishedAt: 'r86400' } },
+      hourly: { params: { publishedAt: 'r7200' } },
+    };
+
+    const client = makeMockClient({
+      'California, United States': [
+        // New-schema fields (current actor output)
+        { jobUrl: 'https://www.linkedin.com/jobs/view/3001', title: 'Backend Eng', companyName: 'Acme', location: 'SF', description: 'Go, Kafka.', publishedAt: '2026-04-22' },
+      ],
+    });
+
+    const result = await runApifyScan({
+      config,
+      client,
+      seenJobsPath: join(dir, 'seen-jobs.tsv'),
+      apifyNewPath: join(dir, 'apify-new-TEST.json'),
+      hourOverride: 7,
+    });
+
+    assert.equal(result.totalNew, 1, 'new-schema item was processed');
+    const tsv = readFileSync(join(dir, 'seen-jobs.tsv'), 'utf-8');
+    assert.match(tsv, /3001/, 'linkedin_id extracted from jobUrl');
+    assert.match(tsv, /acme/, 'company_slug derived from companyName');
+  });
+});
+
+test('runApifyScan: filters blacklisted companies BEFORE dedup', async () => {
+  await withTempWorkspace(async (dir) => {
+    const config = {
+      actor_id: 'TEST_ACTOR',
+      api_token_env: 'FAKE',
+      default_params: { title: 'Software Engineer', proxy: {} },
+      locations: [
+        { name: 'california', location: 'California, United States', baseline_rows: 500, hourly_rows: 200 },
+      ],
+      baseline: { schedule_pst: '07:00', params: { publishedAt: 'r86400' } },
+      hourly: { params: { publishedAt: 'r7200' } },
+    };
+
+    const client = makeMockClient({
+      'California, United States': [
+        { jobUrl: 'https://www.linkedin.com/jobs/view/4001', title: 'SWE', companyName: 'Acme',           location: 'SF', description: 'x' },
+        { jobUrl: 'https://www.linkedin.com/jobs/view/4002', title: 'SWE', companyName: 'Turing',         location: 'SF', description: 'y' },
+        { jobUrl: 'https://www.linkedin.com/jobs/view/4003', title: 'SWE', companyName: 'Jobs via Dice',  location: 'SF', description: 'z' },
+        { jobUrl: 'https://www.linkedin.com/jobs/view/4004', title: 'SWE', companyName: 'Walmart Labs',   location: 'SF', description: 'q' },  // substring match via "Walmart"
+      ],
+    });
+
+    const result = await runApifyScan({
+      config,
+      client,
+      seenJobsPath: join(dir, 'seen-jobs.tsv'),
+      apifyNewPath: join(dir, 'apify-new-TEST.json'),
+      hourOverride: 7,
+      blacklist: ['Turing', 'Jobs via Dice', 'Walmart'],
+    });
+
+    assert.equal(result.totalNew, 1, 'only Acme survives the blacklist');
+    assert.equal(result.sources[0].blacklisted, 3, '3 items blacklisted per-metro telemetry');
+    // Blacklisted companies must NOT appear in seen-jobs.tsv (filtered before dedup)
+    const tsv = readFileSync(join(dir, 'seen-jobs.tsv'), 'utf-8');
+    assert.match(tsv, /4001/, 'Acme saved');
+    assert.doesNotMatch(tsv, /4002/, 'Turing not saved');
+    assert.doesNotMatch(tsv, /4003/, 'Jobs via Dice not saved');
+    assert.doesNotMatch(tsv, /4004/, 'Walmart Labs not saved (substring match)');
+  });
+});
+
+test('runApifyScan: empty or missing blacklist is a no-op', async () => {
+  await withTempWorkspace(async (dir) => {
+    const config = {
+      actor_id: 'TEST_ACTOR',
+      api_token_env: 'FAKE',
+      default_params: { title: 'Software Engineer', proxy: {} },
+      locations: [{ name: 'california', location: 'California, United States', baseline_rows: 500, hourly_rows: 200 }],
+      baseline: { schedule_pst: '07:00', params: { publishedAt: 'r86400' } },
+      hourly: { params: { publishedAt: 'r7200' } },
+    };
+
+    const client = makeMockClient({
+      'California, United States': [
+        { jobUrl: 'https://www.linkedin.com/jobs/view/5001', title: 'SWE', companyName: 'Turing', location: 'SF', description: 'x' },
+      ],
+    });
+
+    const result = await runApifyScan({
+      config,
+      client,
+      seenJobsPath: join(dir, 'seen-jobs.tsv'),
+      apifyNewPath: join(dir, 'apify-new-TEST.json'),
+      hourOverride: 7,
+      // no blacklist arg
+    });
+
+    assert.equal(result.totalNew, 1, 'Turing saved when blacklist is empty/omitted');
+    assert.equal(result.sources[0].blacklisted, 0);
+  });
+});
+
+test('runApifyScan: scanOneLocation filters null fields from input to actor', async () => {
+  await withTempWorkspace(async (dir) => {
+    const config = {
+      actor_id: 'TEST_ACTOR',
+      api_token_env: 'FAKE',
+      // These nulls simulate the real config/apify-search.yml layout for
+      // "all" filters. The actor rejects nulls outright, so they must be
+      // stripped before dispatching.
+      default_params: {
+        title: 'Software Engineer',
+        workType: null,
+        contractType: null,
+        experienceLevel: null,
+        proxy: { useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'] },
+      },
+      locations: [
+        { name: 'california', location: 'California, United States', geoId: '102095887', baseline_rows: 500, hourly_rows: 200 },
+      ],
+      baseline: { schedule_pst: '07:00', params: { publishedAt: 'r86400' } },
+      hourly: { params: { publishedAt: 'r7200' } },
+    };
+
+    let capturedInput;
+    const client = {
+      actor: (_id) => ({
+        call: async (input) => { capturedInput = input; return { defaultDatasetId: 'd' }; },
+      }),
+      dataset: (_id) => ({ listItems: async () => ({ items: [] }) }),
+    };
+
+    await runApifyScan({
+      config,
+      client,
+      seenJobsPath: join(dir, 'seen-jobs.tsv'),
+      apifyNewPath: join(dir, 'apify-new-TEST.json'),
+      hourOverride: 7,
+    });
+
+    assert.ok(!('workType' in capturedInput), 'null workType stripped');
+    assert.ok(!('contractType' in capturedInput), 'null contractType stripped');
+    assert.ok(!('experienceLevel' in capturedInput), 'null experienceLevel stripped');
+    assert.equal(capturedInput.title, 'Software Engineer', 'non-null title kept');
+    assert.equal(capturedInput.geoId, '102095887', 'geoId from location passed through');
+  });
+});
