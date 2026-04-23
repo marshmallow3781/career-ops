@@ -20,3 +20,60 @@ test('buildMongoUri: assembles from env parts with URL-encoded password', () => 
 test('buildMongoUri: throws if required var missing', () => {
   assert.throws(() => buildMongoUri({ MONGODB_USER: 'x' }), /MONGODB_PASSWORD/);
 });
+
+import { withRetry, _isRetryableError } from '../lib/db.mjs';
+
+test('withRetry: returns result on first success', async () => {
+  const fn = async () => 42;
+  assert.equal(await withRetry(fn, { delays: [] }), 42);
+});
+
+test('withRetry: retries on retryable error then succeeds', async () => {
+  let calls = 0;
+  const fn = async () => {
+    calls++;
+    if (calls < 3) {
+      const err = new Error('ECONNRESET');
+      err.name = 'MongoNetworkError';
+      throw err;
+    }
+    return 'ok';
+  };
+  const result = await withRetry(fn, { delays: [1, 1, 1] });
+  assert.equal(result, 'ok');
+  assert.equal(calls, 3);
+});
+
+test('withRetry: fails fast on non-retryable error', async () => {
+  let calls = 0;
+  const fn = async () => {
+    calls++;
+    const err = new Error('E11000 duplicate key');
+    err.code = 11000;
+    throw err;
+  };
+  await assert.rejects(withRetry(fn, { delays: [1, 1, 1] }), /duplicate key/);
+  assert.equal(calls, 1);
+});
+
+test('withRetry: gives up after final retry and rethrows', async () => {
+  let calls = 0;
+  const fn = async () => {
+    calls++;
+    const err = new Error('timeout');
+    err.name = 'MongoNetworkTimeoutError';
+    throw err;
+  };
+  await assert.rejects(withRetry(fn, { delays: [1, 1, 1] }), /timeout/);
+  assert.equal(calls, 4);
+});
+
+test('_isRetryableError: true for MongoNetworkError', () => {
+  const err = new Error('x'); err.name = 'MongoNetworkError';
+  assert.equal(_isRetryableError(err), true);
+});
+
+test('_isRetryableError: false for duplicate key', () => {
+  const err = new Error('x'); err.code = 11000;
+  assert.equal(_isRetryableError(err), false);
+});
