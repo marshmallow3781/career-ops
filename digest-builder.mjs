@@ -19,6 +19,7 @@
  */
 
 import 'dotenv/config';
+import { findDigestCandidates, updateJobStage } from './lib/db.mjs';
 import { readFileSync, writeFileSync, existsSync, readdirSync, renameSync, mkdirSync, unlinkSync } from 'node:fs';
 import { resolve, dirname, join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -552,6 +553,40 @@ function notify(text) {
       `display notification "${text.replace(/"/g, '\\"')}" with title "career-ops autopilot"`],
       { stdio: 'ignore' });
   } catch { /* notification failure should not crash digest */ }
+}
+
+/**
+ * Load candidates for today's digest from Mongo. Pulls jobs in stage='raw'
+ * or stage='scored' (for re-scoring / re-digesting) whose first_seen_at is
+ * within the given time window.
+ */
+export async function loadCandidatesFromMongo({ sinceHours = 24 } = {}) {
+  const cutoff = new Date(Date.now() - sinceHours * 3600 * 1000);
+  return await findDigestCandidates({
+    first_seen_at: { $gte: cutoff },
+    stage: { $in: ['raw', 'scored'] },
+  });
+}
+
+/**
+ * Run title filter + Haiku scoring across the candidate list. Writes
+ * stage transitions to Mongo via updateJobStage.
+ */
+export async function runDigestStage2AndScoring({ candidates, portals, profile, sources, haikuClient, llmConfig, dealBreakers }) {
+  const candidateSummary = buildCandidateSummary(profile, sources);
+  for (const job of candidates) {
+    if (!applyTitleFilter(job.title, portals.title_filter, dealBreakers)) {
+      await updateJobStage(job.linkedin_id, 'title_cut', { reason: 'title filter' });
+      continue;
+    }
+    const { archetype, score, reason } = await preFilterJob(job, SYSTEM_PROMPT, candidateSummary, haikuClient, llmConfig);
+    await updateJobStage(job.linkedin_id, 'scored', {
+      prefilter_archetype: archetype,
+      prefilter_score: score,
+      prefilter_reason: reason,
+      prefilter_source: 'llm',
+    });
+  }
 }
 
 async function main() {
