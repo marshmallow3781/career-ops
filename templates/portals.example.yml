@@ -278,6 +278,48 @@ search_queries:
     query: 'site:news.ycombinator.com OR site:hnrss.org "AI Engineer" OR "Forward Deployed" OR "DevRel" OR "Founding Engineer" remote'
     enabled: true
 
+# -- Location filter --
+# Filter job postings by location. Works on the location string from the job board.
+# At least 0 positive matches required AND 0 negatives must match (case-insensitive).
+# Empty lists = no filter applied.
+
+location_filter:
+  # Bay Area + rest of California (via state match) + Washington State
+  # (via state match + Seattle-metro cities). Drops international offices.
+  # Substring match, case-insensitive. Deny wins over allow.
+  # Empty list = no filter.
+  allow:
+    # California (all cities in any format)
+    - "California"
+    - ", CA"
+    # Washington State (all cities in any format)
+    - "Washington"
+    - ", WA"
+    # Remote variants — deny-list carves out non-US below
+    - "Remote"
+    - "US Remote"
+    - "Remote - US"
+    - "Remote (United States)"
+    - "Remote, United States"
+  deny:
+    # DC is "Washington" without being in Washington State — carve out.
+    - "Washington, DC"
+    - "Washington D.C."
+    - "Washington DC"
+    # Non-US remotes (deny wins over "Remote" allow-match).
+    - "Remote - EU"
+    - "Remote - EMEA"
+    - "Remote - Europe"
+    - "Remote - Canada"
+    - "Remote - India"
+    - "Remote - UK"
+    - "Remote - Ireland"
+    - "Remote, Canada"
+    - "Remote, UK"
+    - "Remote, India"
+    - "Remote, Germany"
+    - "Remote, Brazil"
+
 # -- Tracked companies --
 # Companies whose career pages are checked directly.
 # scan_method: playwright (default), websearch, greenhouse_api
