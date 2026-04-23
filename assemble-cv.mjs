@@ -23,7 +23,7 @@ import {
   defaultClient, classifyArchetype, pickBullets, extractJdIntent,
 } from './assemble-llm.mjs';
 import { computeJdFingerprint } from './lib/dedup.mjs';
-import { getDb } from './lib/db.mjs';
+import { getDb, upsertCvArtifact } from './lib/db.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SOURCES_ROOT = resolve(__dirname, 'experience_source');
@@ -236,10 +236,54 @@ async function main() {
 
   // 9. Render
   const md = renderTailored({ profile: config, companies, projects, competencies, summary });
+
+  // 10. Derive per-job paths + metadata
+  const jdSlug = args.jd.replace(/^.*\//, '').replace(/\.md$/, '');
+  const { job_id, link_status, fingerprint, matched_job } = await deriveJobIdForCv({ jdText, jdSlug });
+  const company_slug = matched_job?.company_slug || jdSlug;
+  const title_slug = matched_job ? matched_job.title_normalized : jdSlug;
+  const paths = buildCvPaths({ company_slug, title_slug, job_id });
+
+  const { mkdirSync } = await import('node:fs');
+  mkdirSync(resolve(__dirname, paths.dir), { recursive: true });
+
+  const cvMdFullPath = resolve(__dirname, paths.cv_md_path);
+  writeFileSync(cvMdFullPath, md);
+
+  const { createHash } = await import('node:crypto');
+  const checksum_md = 'sha256:' + createHash('sha256').update(md).digest('hex');
+
+  const profileText = readFileSync(PROFILE_PATH, 'utf-8');
+  const profile_version_hash = 'sha256:' + createHash('sha256').update(profileText).digest('hex');
+
+  await upsertCvArtifact({
+    job_id,
+    company_slug,
+    title_slug,
+    cv_md_path: paths.cv_md_path,
+    cv_tex_path: null,
+    cv_pdf_path: null,
+    jd_fingerprint: fingerprint,
+    profile_version_hash,
+    archetype,
+    intent_source: intent._source || 'llm',
+    checksum_md,
+    _link_status: link_status,
+  });
+
+  // Back-compat: keep writing cv.tailored.md as the flat "latest CV"
   writeFileSync(OUT_TAILORED, md);
   writeFileSync(OUT_META, JSON.stringify(meta, null, 2));
 
-  console.log(JSON.stringify({ ok: true, output: OUT_TAILORED, archetype, companies: meta.companies }, null, 2));
+  console.log(JSON.stringify({
+    ok: true,
+    output: cvMdFullPath,
+    output_flat: OUT_TAILORED,
+    job_id,
+    link_status,
+    archetype,
+    companies: meta.companies,
+  }, null, 2));
 }
 
 // Only run main() when executed directly (not when imported by tests).
