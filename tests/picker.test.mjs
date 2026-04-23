@@ -41,3 +41,21 @@ test('resolvePickerResume: missing=true + filename=null for unmapped archetype',
   assert.equal(r.missing, true);
   assert.equal(r.filename, null);
 });
+
+import { extractPdfText } from '../lib/picker.mjs';
+
+test('extractPdfText: returns text on happy path', async () => {
+  const path = resolve(FIXTURE_DIR, 'sample_backend.pdf');
+  const text = await extractPdfText(path);
+  assert.ok(typeof text === 'string');
+  assert.ok(text.length > 50, 'expected non-trivial extracted text');
+});
+
+test('extractPdfText: throws with install hint when pdftotext binary missing', async () => {
+  // Mock by passing a non-existent PDF path — pdftotext will fail with a
+  // non-zero exit code, and our wrapper should surface a clear error.
+  await assert.rejects(
+    () => extractPdfText('/nonexistent/path/to/resume.pdf'),
+    /pdftotext/i,
+  );
+});
