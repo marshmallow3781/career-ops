@@ -119,3 +119,71 @@ test('findDigestCandidates: returns jobs matching stage filter, sorted by score 
   assert.equal(results[0].linkedin_id, 'high');
   assert.equal(results[1].linkedin_id, 'low');
 });
+
+test('upsertJobByUrl: inserts job keyed by url with stage=raw', async () => {
+  const { upsertJobByUrl } = await import('../lib/db.mjs');
+  const doc = {
+    url: 'https://job-boards.greenhouse.io/anthropic/jobs/123',
+    title: 'Applied AI Engineer',
+    title_normalized: 'applied-ai-engineer',
+    company: 'Anthropic',
+    company_slug: 'anthropic',
+    company_title_key: 'anthropic|applied-ai-engineer',
+    jd_fingerprint: 'sha256:gh123',
+    location: 'San Francisco, CA',
+    description: 'x',
+    source_type: 'greenhouse',
+    source_metro: null,
+    posted_at_raw: '2026-04-22',
+    posted_time_relative: null,
+    first_scan_run_id: null,
+  };
+  const res = await upsertJobByUrl(doc);
+  assert.equal(res.upsertedCount, 1);
+  const stored = await db.collection('jobs').findOne({ url: doc.url });
+  assert.equal(stored.stage, 'raw');
+  assert.equal(stored.source_type, 'greenhouse');
+  assert.equal(stored.linkedin_id, null);
+  assert.equal(stored.company, 'Anthropic');
+  assert.ok(Array.isArray(stored.stage_history));
+  assert.equal(stored.stage_history.length, 1);
+  assert.equal(stored.stage_history[0].stage, 'raw');
+});
+
+test('upsertJobByUrl: re-upsert preserves first_seen_at and stage_history length', async () => {
+  const { upsertJobByUrl } = await import('../lib/db.mjs');
+  const doc = {
+    url: 'https://job-boards.greenhouse.io/anthropic/jobs/456',
+    title: 'Infra Eng',
+    title_normalized: 'infra-eng',
+    company: 'Anthropic',
+    company_slug: 'anthropic',
+    company_title_key: 'anthropic|infra-eng',
+    jd_fingerprint: 'sha256:gh456',
+    location: 'SF',
+    description: 'x',
+    source_type: 'greenhouse',
+    source_metro: null,
+    posted_at_raw: '2026-04-22',
+  };
+  await upsertJobByUrl(doc);
+  const first = await db.collection('jobs').findOne({ url: doc.url });
+  await new Promise(r => setTimeout(r, 5));
+  await upsertJobByUrl(doc);
+  const second = await db.collection('jobs').findOne({ url: doc.url });
+  assert.equal(second.first_seen_at.getTime(), first.first_seen_at.getTime());
+  assert.ok(second.last_seen_at.getTime() >= first.last_seen_at.getTime());
+  assert.equal(second.stage_history.length, 1);
+});
+
+test('findJobsBySeenUrls: returns Set of already-seen URLs', async () => {
+  const { upsertJobByUrl, findJobsBySeenUrls } = await import('../lib/db.mjs');
+  await upsertJobByUrl({ url: 'https://a.test/1', title: 't', title_normalized: 't', company: 'A', company_slug: 'a', company_title_key: 'a|t', jd_fingerprint: 'x', location: 'SF', description: '', source_type: 'greenhouse', source_metro: null, posted_at_raw: '' });
+  await upsertJobByUrl({ url: 'https://a.test/2', title: 't', title_normalized: 't', company: 'A', company_slug: 'a', company_title_key: 'a|t', jd_fingerprint: 'y', location: 'SF', description: '', source_type: 'greenhouse', source_metro: null, posted_at_raw: '' });
+  const seen = await findJobsBySeenUrls(['https://a.test/1', 'https://a.test/2', 'https://a.test/3']);
+  assert.ok(seen instanceof Set);
+  assert.equal(seen.size, 2);
+  assert.ok(seen.has('https://a.test/1'));
+  assert.ok(seen.has('https://a.test/2'));
+  assert.ok(!seen.has('https://a.test/3'));
+});
