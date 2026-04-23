@@ -44,6 +44,21 @@ test('resolvePickerResume: missing=true + filename=null for unmapped archetype',
 
 import { extractPdfText } from '../lib/picker.mjs';
 
+import { buildPlaceholderCv } from '../lib/picker.mjs';
+
+test('buildPlaceholderCv: includes archetype and filename in output', () => {
+  const md = buildPlaceholderCv('applied_ai', 'applied_ai_2.0.pdf');
+  assert.ok(md.includes('applied_ai'), 'archetype should appear');
+  assert.ok(md.includes('applied_ai_2.0.pdf'), 'filename should appear');
+  assert.ok(md.startsWith('#'), 'should be a markdown heading');
+});
+
+test('buildPlaceholderCv: handles unmapped archetype (null filename)', () => {
+  const md = buildPlaceholderCv('unknown', null);
+  assert.ok(md.includes('unknown'));
+  assert.ok(md.toLowerCase().includes('archetype_map'));
+});
+
 test('extractPdfText: returns text on happy path', async () => {
   const path = resolve(FIXTURE_DIR, 'sample_backend.pdf');
   const text = await extractPdfText(path);
