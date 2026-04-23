@@ -377,6 +377,7 @@ async function main() {
   const config = parseYaml(readFileSync(PORTALS_PATH, 'utf-8'));
   const companies = config.tracked_companies || [];
   const titleFilter = buildTitleFilter(config.title_filter);
+  const locationFilter = buildLocationFilter(config.location_filter);
 
   // 2. Filter to enabled companies with detectable APIs
   const targets = companies
@@ -404,6 +405,7 @@ async function main() {
   const errors = [];
 
   let totalStale = 0;  // jobs older than sinceHours window
+  let totalLocationFiltered = 0;
 
   const tasks = targets.map(company => async () => {
     const { type, url } = company._api;
@@ -417,6 +419,10 @@ async function main() {
       for (const job of jobs) {
         if (!titleFilter(job.title)) {
           totalFiltered++;
+          continue;
+        }
+        if (!locationFilter(job.location)) {
+          totalLocationFiltered++;
           continue;
         }
         if (seenUrls.has(job.url)) {
@@ -461,6 +467,7 @@ async function main() {
   console.log(`Companies scanned:     ${targets.length}`);
   console.log(`Total jobs found:      ${totalFound}`);
   console.log(`Outside time window:   ${totalStale} skipped (posted_at older than ${sinceHours}h)`);
+  console.log(`Outside location:      ${totalLocationFiltered} skipped (no allow match OR deny match)`);
   console.log(`Filtered by title:     ${totalFiltered} removed`);
   console.log(`Duplicates:            ${totalDupes} skipped`);
   console.log(`New offers added:      ${newOffers.length}`);
