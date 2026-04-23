@@ -18,6 +18,7 @@
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
 import yaml from 'js-yaml';
 import { computeJdFingerprint, normalizeCompany, normalizeTitle, appendSeenJobs, isCompanyBlacklisted } from './lib/dedup.mjs';
+import { insertScanRun, upsertJobByUrl, findJobsBySeenUrls, getDb } from './lib/db.mjs';
 const parseYaml = yaml.load;
 
 // ── Config ──────────────────────────────────────────────────────────
@@ -194,6 +195,70 @@ export function buildBlacklistFilter(blacklist) {
     if (!company) return false;
     return isCompanyBlacklisted(company, entries);
   };
+}
+
+/**
+ * Persist a scan run + its surviving jobs to MongoDB. Mirrors apify-scan's
+ * Mongo-write pattern, adapted for URL-keyed dedup (scan.mjs doesn't have
+ * linkedin_ids).
+ *
+ * Returns { scanRunId, newJobs }. newJobs is the subset of `jobs` that
+ * were not already in the collection (so the caller can know which ones
+ * to also write to pipeline.md under DUAL_WRITE_FILES).
+ */
+export async function scanJobsToMongo({
+  jobs,
+  runStartedAt, runFinishedAt,
+  totalFetched, totalBlacklisted, totalFiltered, totalLocationFiltered, totalStale,
+  sourceTypes,
+  errors,
+}) {
+  const source = sourceTypes.length === 1 ? sourceTypes[0] : 'mixed';
+
+  // Bulk-check which URLs we've already seen
+  const urls = jobs.map(j => j.url).filter(Boolean);
+  const seenUrls = await findJobsBySeenUrls(urls);
+  const newJobs = jobs.filter(j => j.url && !seenUrls.has(j.url));
+
+  const scanRunId = await insertScanRun({
+    source,
+    metro: null,
+    apify_actor_id: null,
+    apify_run_id: null,
+    input_params: { source_types: sourceTypes },
+    run_started_at: runStartedAt,
+    run_finished_at: runFinishedAt,
+    fetched_count: totalFetched,
+    new_count: newJobs.length,
+    blacklisted_count: totalBlacklisted,
+    title_filtered_count: totalFiltered,
+    location_filtered_count: totalLocationFiltered,
+    stale_count: totalStale,
+    errors: errors || [],
+  });
+
+  // Upsert each job (both new and re-seen — re-seen updates last_seen_at)
+  for (const job of jobs) {
+    if (!job.url) continue;
+    await upsertJobByUrl({
+      url: job.url,
+      title: job.title,
+      title_normalized: normalizeTitle(job.title || ''),
+      company: job.company,
+      company_slug: normalizeCompany(job.company || ''),
+      company_title_key: `${normalizeCompany(job.company || '')}|${normalizeTitle(job.title || '')}`,
+      jd_fingerprint: job.description ? computeJdFingerprint(job.description) : null,
+      location: job.location || '',
+      description: (job.description || '').slice(0, 4000),
+      source_type: job.api_type || source,
+      source_metro: null,
+      posted_at_raw: job.posted_at || '',
+      posted_time_relative: null,
+      first_scan_run_id: scanRunId,
+    });
+  }
+
+  return { scanRunId, newJobs };
 }
 
 // ── Dedup ───────────────────────────────────────────────────────────
@@ -382,6 +447,7 @@ function filterByPostedAt(jobs, sinceHours) {
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
+  const runStartedAt = new Date();
   const companyFlag = args.indexOf('--company');
   const filterCompany = companyFlag !== -1 ? args[companyFlag + 1]?.toLowerCase() : null;
   const sinceHours = resolveSinceHours(args);
@@ -479,7 +545,25 @@ async function main() {
   await parallelFetch(tasks, CONCURRENCY);
 
   // 5. Write results
-  if (!dryRun && newOffers.length > 0) {
+  const runFinishedAt = new Date();
+  const sourceTypes = [...new Set(newOffers.map(o => o.api_type).filter(Boolean))];
+  const dualWrite = process.env.DUAL_WRITE_FILES === '1';
+
+  if (!dryRun) {
+    await scanJobsToMongo({
+      jobs: newOffers.concat(),  // all seen jobs
+      runStartedAt, runFinishedAt,
+      totalFetched: totalFound,
+      totalBlacklisted,
+      totalFiltered,
+      totalLocationFiltered,
+      totalStale,
+      sourceTypes,
+      errors: errors.map(e => ({ company: e.company, error: e.error })),
+    });
+  }
+
+  if (!dryRun && dualWrite && newOffers.length > 0) {
     appendToPipeline(newOffers);
     appendToScanHistory(newOffers, date);
 
@@ -529,7 +613,9 @@ async function main() {
   console.log('→ Share results and get help: https://discord.gg/8pRpHETxa4');
 }
 
-main().catch(err => {
-  console.error('Fatal:', err.message);
-  process.exit(1);
-});
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch(err => {
+    console.error('Fatal:', err.message);
+    process.exit(1);
+  });
+}
