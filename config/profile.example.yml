@@ -143,3 +143,17 @@ tier_rules:
   light_bullets: 2
 
 prefer_latex: false
+
+# Picker mode (assemble-cv --mode=picker)
+# Maps JD archetype → one of the PDF resumes under resumes_dir.
+# Unmapped archetypes (e.g. 'unknown') produce a placeholder cv.tailored.md.
+cv:
+  picker:
+    resumes_dir: resumes
+    archetype_map:
+      backend: backend_ai_2.0.pdf
+      infra: infra_2.0.pdf
+      fullstack: fullstack_ai_2.0.pdf
+      frontend: fullstack_ai_2.0.pdf          # reuses fullstack for now
+      machine_learning: applied_ai_2.0.pdf    # file not yet present
+      applied_ai: applied_ai_2.0.pdf          # file not yet present
