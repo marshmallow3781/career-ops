@@ -68,6 +68,22 @@ export function applyTitleFilter(title, filter, dealBreakers) {
 }
 
 /**
+ * Validate that portals.yml has a usable title_filter. A silently-empty
+ * positive list means "allow every title through" (see applyTitleFilter),
+ * which turns off the title gate entirely — almost always a misconfig.
+ * Callers should invoke this once at startup and fail fast if it throws.
+ */
+export function assertTitleFilterUsable(portals) {
+  const f = portals?.title_filter;
+  if (!f || !Array.isArray(f.positive) || f.positive.length === 0) {
+    throw new Error(
+      'portals.yml has no title_filter.positive patterns — the title gate ' +
+      'would silently pass every job. Add at least one positive keyword.'
+    );
+  }
+}
+
+/**
  * Build the cached candidate-summary block used in the Haiku pre-filter prompt.
  * Assembled from config/profile.yml + experience_source/ (via loadAllSources,
  * shared with assemble-cv.mjs).
@@ -183,6 +199,16 @@ Output ONLY the JSON object. No preamble, no markdown.`;
  * @returns {Promise<{archetype, score, reason}>} where score is integer 0-10 or null
  */
 export async function preFilterJob(job, systemPrompt, candidateSummary, client, config = null) {
+  // One retry on "unscored" outcomes (null score) — transient LLM variance
+  // on ambiguous JDs can return archetype='unknown' + score=null the first
+  // pass, then classify cleanly on a second pass at the same temperature.
+  const first = await preFilterJobOnce(job, systemPrompt, candidateSummary, client, config);
+  if (first.score !== null) return first;
+  const second = await preFilterJobOnce(job, systemPrompt, candidateSummary, client, config);
+  return second.score !== null ? second : first;
+}
+
+async function preFilterJobOnce(job, systemPrompt, candidateSummary, client, config = null) {
   const userMessage =
     `<job>\nTitle: ${job.title || ''}\nCompany: ${job.company || ''}\n` +
     `Location: ${job.location || ''}\nDescription:\n` +
@@ -244,18 +270,40 @@ export async function preFilterJob(job, systemPrompt, candidateSummary, client, 
     return { archetype: 'unknown', score: null, reason: `prefilter unavailable: ${(e.message || '').slice(0, 60)}` };
   }
 
-  // Try strict JSON parse first; fall back to regex extract
+  // Try strict JSON parse first; fall back to brace-counting scan that
+  // handles nested objects (the prior regex `/\{[^}]+\}/` failed on any
+  // response where a string field or sub-object contained `}`).
   let parsed = null;
   try {
     parsed = JSON.parse(text);
   } catch {
-    const m = text.match(/\{[^}]+\}/);
-    if (m) {
-      try { parsed = JSON.parse(m[0]); } catch { /* ignore */ }
+    const start = text.indexOf('{');
+    if (start !== -1) {
+      let depth = 0, inStr = false, esc = false, end = -1;
+      for (let i = start; i < text.length; i++) {
+        const c = text[i];
+        if (inStr) {
+          if (esc) esc = false;
+          else if (c === '\\') esc = true;
+          else if (c === '"') inStr = false;
+        } else {
+          if (c === '"') inStr = true;
+          else if (c === '{') depth++;
+          else if (c === '}') {
+            depth--;
+            if (depth === 0) { end = i; break; }
+          }
+        }
+      }
+      if (end !== -1) {
+        try { parsed = JSON.parse(text.slice(start, end + 1)); } catch { /* ignore */ }
+      }
     }
   }
 
   if (!parsed || typeof parsed !== 'object') {
+    const snippet = (text || '').replace(/\s+/g, ' ').slice(0, 200);
+    console.error(`[prefilter] parse failed for ${job.company || '?'} — raw: ${snippet}`);
     return { archetype: 'unknown', score: null, reason: 'prefilter parse failed' };
   }
 
@@ -556,15 +604,18 @@ function notify(text) {
 }
 
 /**
- * Load candidates for today's digest from Mongo. Pulls jobs in stage='raw'
- * or stage='scored' (for re-scoring / re-digesting) whose first_seen_at is
- * within the given time window.
+ * Load candidates for today's digest from Mongo.
+ *
+ * Default: returns only stage='raw' jobs (fresh work).
+ * With includeScored=true: also returns stage='scored' so the caller can
+ * re-score them against an updated prompt/rubric. Use sparingly — this
+ * burns LLM tokens on jobs already evaluated.
  */
-export async function loadCandidatesFromMongo({ sinceHours = 24 } = {}) {
+export async function loadCandidatesFromMongo({ sinceHours = 24, includeScored = false } = {}) {
   const cutoff = new Date(Date.now() - sinceHours * 3600 * 1000);
   return await findDigestCandidates({
     first_seen_at: { $gte: cutoff },
-    stage: { $in: ['raw', 'scored'] },
+    stage: { $in: includeScored ? ['raw', 'scored'] : ['raw'] },
   });
 }
 
@@ -600,9 +651,13 @@ async function main() {
     process.exit(1);
   }
   const profile = yaml.load(readFileSync(profilePath, 'utf-8'));
-  const portals = existsSync(portalsPath)
-    ? yaml.load(readFileSync(portalsPath, 'utf-8'))
-    : { title_filter: { positive: [], negative: [] } };
+  if (!existsSync(portalsPath)) {
+    console.error(`Missing portals.yml — copy from templates/portals.example.yml. ` +
+      `Without a title_filter.positive list, every job would pass the title gate silently.`);
+    process.exit(1);
+  }
+  const portals = yaml.load(readFileSync(portalsPath, 'utf-8'));
+  assertTitleFilterUsable(portals);
 
   // Load experience_source via assemble-core (shared module)
   const { loadAllSources } = await import('./assemble-core.mjs');

@@ -26,7 +26,7 @@ import {
   appendSeenJobs,
   isCompanyBlacklisted,
 } from './lib/dedup.mjs';
-import { insertScanRun, upsertJob, findJobsBySeenSet, getDb } from './lib/db.mjs';
+import { insertScanRun, upsertJob, findJobsBySeenSet, getDb, closeDb } from './lib/db.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH  = resolve(__dirname, 'config/apify-search.yml');
@@ -300,22 +300,28 @@ async function main() {
 
   const apifyNewPath = join(NEW_DIR, `apify-new-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
 
-  const result = await runApifyScan({
-    config,
-    client,
-    seenJobsPath: SEEN_PATH,
-    apifyNewPath,
-    dryRun,
-    blacklist,
-  });
+  let result;
+  try {
+    result = await runApifyScan({
+      config,
+      client,
+      seenJobsPath: SEEN_PATH,
+      apifyNewPath,
+      dryRun,
+      blacklist,
+    });
+  } finally {
+    await closeDb().catch(() => {});
+  }
 
   console.log(JSON.stringify(result, null, 2));
   process.exit(result.errors.length === config.locations.length ? 1 : 0);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch(err => {
+  main().catch(async err => {
     console.error('apify-scan.mjs crashed:', err);
+    await closeDb().catch(() => {});
     process.exit(2);
   });
 }

@@ -54,6 +54,24 @@ async function main() {
   }
   const markdown = readFileSync(inputPath, 'utf-8');
 
+  // Picker mode (assemble-cv --mode=picker) writes raw pdftotext output
+  // into cv.tailored.md — that text won't satisfy the assembler-shaped
+  // structural checks, and the final artifact the user ships is the
+  // pre-designed PDF, not the extracted text. Skip validation and
+  // record a 'skipped' result in the cv_artifacts doc.
+  const metaPath = resolve(__dirname, '.cv-tailored-meta.json');
+  if (existsSync(metaPath)) {
+    try {
+      const meta = JSON.parse(readFileSync(metaPath, 'utf-8'));
+      if (meta?.mode === 'picker') {
+        console.error(`[validate-cv] picker mode (archetype=${meta.archetype}) — skipping structural validation`);
+        process.exit(0);
+      }
+    } catch {
+      // Fall through to normal validation if meta unreadable.
+    }
+  }
+
   const config = loadConfig(resolve(__dirname, 'config/profile.yml'));
   const sourcesRoot = resolve(__dirname, explicitRoot || config.experience_sources?.root || 'experience_source');
 
