@@ -15,10 +15,11 @@
  *   node scan.mjs --company Cohere # scan a single company
  */
 
+import 'dotenv/config';
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync } from 'fs';
 import yaml from 'js-yaml';
 import { computeJdFingerprint, normalizeCompany, normalizeTitle, appendSeenJobs, isCompanyBlacklisted } from './lib/dedup.mjs';
-import { insertScanRun, upsertJobByUrl, findJobsBySeenUrls, getDb } from './lib/db.mjs';
+import { insertScanRun, upsertJobByUrl, findJobsBySeenUrls, getDb, closeDb } from './lib/db.mjs';
 const parseYaml = yaml.load;
 
 // ── Config ──────────────────────────────────────────────────────────
@@ -605,12 +606,19 @@ async function main() {
     if (dryRun) {
       console.log('\n(dry run — run without --dry-run to save results)');
     } else {
-      console.log(`\nResults saved to ${PIPELINE_PATH} and ${SCAN_HISTORY_PATH}`);
+      console.log(`\nResults saved to MongoDB (scan_runs + jobs collections)`);
+      if (dualWrite) {
+        console.log(`Also mirrored to ${PIPELINE_PATH} and ${SCAN_HISTORY_PATH} (DUAL_WRITE_FILES=1)`);
+      }
     }
   }
 
   console.log(`\n→ Run /career-ops pipeline to evaluate new offers.`);
   console.log('→ Share results and get help: https://discord.gg/8pRpHETxa4');
+
+  // Release the Mongo singleton so Node's event loop can exit.
+  // Without this, the process hangs after main() completes.
+  await closeDb();
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
