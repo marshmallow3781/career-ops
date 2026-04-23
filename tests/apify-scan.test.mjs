@@ -1,15 +1,45 @@
-import { test } from 'node:test';
+import { test, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync, readFileSync, existsSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MongoMemoryServer } from 'mongodb-memory-server';
+import { MongoClient } from 'mongodb';
+import { connectWithClient, closeDb, _resetDbForTesting, ensureIndexes } from '../lib/db.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Import the main orchestrator function. It accepts an injected client for testing.
 import { runApifyScan } from '../apify-scan.mjs';
+
+let _mongod, _mongoClient, _db;
+
+before(async () => {
+  _mongod = await MongoMemoryServer.create();
+  _mongoClient = new MongoClient(_mongod.getUri());
+  await _mongoClient.connect();
+  _db = _mongoClient.db('test');
+  connectWithClient(_mongoClient, 'test');
+  await ensureIndexes();
+  process.env.DUAL_WRITE_FILES = '1';
+});
+
+after(async () => {
+  delete process.env.DUAL_WRITE_FILES;
+  await closeDb();
+  _resetDbForTesting();
+  if (_mongoClient) await _mongoClient.close();
+  if (_mongod) await _mongod.stop();
+});
+
+beforeEach(async () => {
+  if (_db) {
+    await _db.collection('jobs').deleteMany({});
+    await _db.collection('scan_runs').deleteMany({});
+  }
+});
 
 async function withTempWorkspace(fn) {
   const dir = mkdtempSync(join(tmpdir(), 'apify-scan-'));

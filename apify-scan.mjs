@@ -26,6 +26,7 @@ import {
   appendSeenJobs,
   isCompanyBlacklisted,
 } from './lib/dedup.mjs';
+import { insertScanRun, upsertJob, findJobsBySeenSet, getDb } from './lib/db.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH  = resolve(__dirname, 'config/apify-search.yml');
@@ -79,14 +80,14 @@ export async function runApifyScan({ config, client, seenJobsPath, apifyNewPath,
     : new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hour12: false });
   const hourNum = typeof hour === 'number' ? hour : parseInt(hour, 10);
   const isBaseline = hourNum === 7;
+  const dualWrite = process.env.DUAL_WRITE_FILES === '1';
 
   const params = {
     defaultParams: config.default_params,
     publishedAt: isBaseline ? config.baseline.params.publishedAt : config.hourly.params.publishedAt,
   };
 
-  const seen = await loadSeenJobs(seenJobsPath);
-
+  const runStartedAt = new Date();
   const settled = await Promise.allSettled(
     config.locations.map(loc =>
       dryRun
@@ -99,11 +100,39 @@ export async function runApifyScan({ config, client, seenJobsPath, apifyNewPath,
           })
     )
   );
+  const runFinishedAt = new Date();
 
   const sources = [];
   const errors = [];
   const newRows = [];
   const newJobs = [];
+
+  let totalFetched = 0;
+  let totalNewCount = 0;
+  let totalBlacklistedCount = 0;
+
+  let tsvSeen = null;
+  if (dualWrite) {
+    tsvSeen = await loadSeenJobs(seenJobsPath);
+  }
+
+  const scanRunId = dryRun ? null : await insertScanRun({
+    source: 'apify-linkedin',
+    metro: config.locations.length === 1 ? config.locations[0].name : 'multi',
+    apify_actor_id: config.actor_id,
+    apify_run_id: null,
+    input_params: {
+      title: (params.defaultParams && params.defaultParams.title) || null,
+      publishedAt: params.publishedAt,
+      locations: config.locations.map(l => ({ name: l.name, geoId: l.geoId })),
+    },
+    run_started_at: runStartedAt,
+    run_finished_at: runFinishedAt,
+    fetched_count: 0,
+    new_count: 0,
+    blacklisted_count: 0,
+    errors: [],
+  });
 
   for (let i = 0; i < settled.length; i++) {
     const loc = config.locations[i];
@@ -113,42 +142,72 @@ export async function runApifyScan({ config, client, seenJobsPath, apifyNewPath,
       continue;
     }
     const items = r.value.items || [];
+    totalFetched += items.length;
     let newCount = 0;
     let blacklistedCount = 0;
-    const nowIso = new Date().toISOString();
+    const linkedinIds = items.map(j => extractLinkedInId(j.jobUrl || j.url)).filter(Boolean);
+
+    const mongoSeen = dryRun ? new Set() : await findJobsBySeenSet(linkedinIds);
+
     for (const j of items) {
-      const jobUrl      = getJobField(j, 'jobUrl', 'url');
-      const companyName = getJobField(j, 'companyName', 'company');
-      const title       = getJobField(j, 'title', 'title');
-      const jobLocation = getJobField(j, 'location', 'location');
-      const publishedAt = getJobField(j, 'publishedAt', 'posted_at');
+      const jobUrl      = j.jobUrl      || j.url;
+      const companyName = j.companyName || j.company;
+      const title       = j.title       || '';
+      const jobLocation = j.location    || '';
+      const publishedAt = j.publishedAt || j.posted_at || '';
 
       const linkedin_id = extractLinkedInId(jobUrl);
       if (!linkedin_id) continue;
 
-      // Blacklist check — done BEFORE dedup work so blacklisted companies
-      // don't pollute seen-jobs.tsv. Filtering at retrieval time means we
-      // never store them, never try to re-dedup them next run, and never
-      // pass them to the Haiku pre-filter (which would waste tokens).
       if (isCompanyBlacklisted(companyName, blacklist)) {
         blacklistedCount++;
         continue;
       }
 
-      if (seen.linkedinIds.has(linkedin_id)) continue;
-
-      const fingerprint = j.description ? computeJdFingerprint(j.description) : '(none)';
-      if (fingerprint !== '(none)' && seen.fingerprints.has(fingerprint)) continue;
+      if (mongoSeen.has(linkedin_id)) {
+        if (!dryRun) {
+          await upsertJob({
+            linkedin_id,
+            url: jobUrl,
+            title,
+            title_normalized: normalizeTitle(title || ''),
+            company: companyName,
+            company_slug: normalizeCompany(companyName || ''),
+            company_title_key: `${normalizeCompany(companyName || '')}|${normalizeTitle(title || '')}`,
+            jd_fingerprint: j.description ? computeJdFingerprint(j.description) : null,
+            location: jobLocation,
+            description: (j.description || '').slice(0, 4000),
+            source_metro: loc.name,
+            posted_at_raw: publishedAt,
+            posted_time_relative: j.postedTime || '',
+            first_scan_run_id: scanRunId,
+          });
+        }
+        continue;
+      }
 
       const company_slug = normalizeCompany(companyName || '');
       const title_normalized = normalizeTitle(title || '');
-      const tck = `${company_slug}|${title_normalized}`;
-      if (company_slug && title_normalized && seen.titleCompanyKeys.has(tck)) continue;
+      const fingerprint = j.description ? computeJdFingerprint(j.description) : null;
 
-      // Mark seen in-memory to dedup within this run
-      seen.linkedinIds.add(linkedin_id);
-      if (fingerprint !== '(none)') seen.fingerprints.set(fingerprint, {});
-      if (company_slug && title_normalized) seen.titleCompanyKeys.set(tck, {});
+      if (!dryRun) {
+        await upsertJob({
+          linkedin_id,
+          url: jobUrl,
+          title,
+          title_normalized,
+          company: companyName,
+          company_slug,
+          company_title_key: `${company_slug}|${title_normalized}`,
+          jd_fingerprint: fingerprint,
+          location: jobLocation,
+          description: (j.description || '').slice(0, 4000),
+          source_metro: loc.name,
+          posted_at_raw: publishedAt,
+          posted_time_relative: j.postedTime || '',
+          first_scan_run_id: scanRunId,
+        });
+      }
 
       newJobs.push({
         linkedin_id,
@@ -161,32 +220,43 @@ export async function runApifyScan({ config, client, seenJobsPath, apifyNewPath,
         posted_at: publishedAt || '',
         source_metro: loc.name,
       });
-      newRows.push({
-        linkedin_id,
-        url: jobUrl,
-        company_slug,
-        title_normalized,
-        first_seen_utc: nowIso,
-        last_seen_utc: nowIso,
-        source: `apify-linkedin-${loc.name}`,
-        status: 'new',
-        jd_fingerprint: fingerprint,
-        prefilter_archetype: '(none)',
-        prefilter_score: '(none)',
-        prefilter_reason: '(none)',
-      });
+
+      if (dualWrite && tsvSeen) {
+        newRows.push({
+          linkedin_id,
+          url: jobUrl,
+          company_slug,
+          title_normalized,
+          first_seen_utc: runStartedAt.toISOString(),
+          last_seen_utc: runStartedAt.toISOString(),
+          source: `apify-linkedin-${loc.name}`,
+          status: 'new',
+          jd_fingerprint: fingerprint || '(none)',
+          prefilter_archetype: '(none)',
+          prefilter_score: '(none)',
+          prefilter_reason: '(none)',
+        });
+      }
       newCount++;
     }
+    totalNewCount += newCount;
+    totalBlacklistedCount += blacklistedCount;
     sources.push({ metro: loc.name, fetched: items.length, new: newCount, blacklisted: blacklistedCount });
   }
 
-  if (!dryRun && newRows.length > 0) {
-    await appendSeenJobs(seenJobsPath, newRows);
+  if (!dryRun && scanRunId) {
+    const db = await getDb();
+    await db.collection('scan_runs').updateOne(
+      { _id: scanRunId },
+      { $set: { fetched_count: totalFetched, new_count: totalNewCount, blacklisted_count: totalBlacklistedCount, errors } },
+    );
   }
-  if (!dryRun) {
+
+  if (dualWrite && newRows.length > 0) await appendSeenJobs(seenJobsPath, newRows);
+  if (dualWrite) {
     const payload = {
-      run_started_utc: new Date().toISOString(),
-      run_finished_utc: new Date().toISOString(),
+      run_started_utc: runStartedAt.toISOString(),
+      run_finished_utc: runFinishedAt.toISOString(),
       sources,
       total_new_jobs: newJobs.length,
       cost_estimate_usd: Number((newJobs.length * 0.001).toFixed(3)),
@@ -196,7 +266,7 @@ export async function runApifyScan({ config, client, seenJobsPath, apifyNewPath,
     writeFileSync(apifyNewPath, JSON.stringify(payload, null, 2));
   }
 
-  return { sources, errors, totalNew: newJobs.length };
+  return { sources, errors, totalNew: newJobs.length, scanRunId };
 }
 
 async function main() {
