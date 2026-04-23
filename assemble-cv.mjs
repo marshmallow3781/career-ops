@@ -22,6 +22,8 @@ import {
 import {
   defaultClient, classifyArchetype, pickBullets, extractJdIntent,
 } from './assemble-llm.mjs';
+import { computeJdFingerprint } from './lib/dedup.mjs';
+import { getDb } from './lib/db.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SOURCES_ROOT = resolve(__dirname, 'experience_source');
@@ -31,6 +33,33 @@ const OUT_TAILORED = resolve(__dirname, 'cv.tailored.md');
 const OUT_META = resolve(__dirname, '.cv-tailored-meta.json');
 
 const SCORE_THRESHOLD = 1; // bullet keeps if it has >= 1 keyword hit
+
+/**
+ * Resolve the job_id for CV generation. If the JD's fingerprint matches a
+ * record in the jobs collection, use that record's linkedin_id. Otherwise
+ * fall back to a synthetic id derived from the JD file slug — the CV gets
+ * written but with link_status='unlinked' in the cv_artifacts doc.
+ */
+export async function deriveJobIdForCv({ jdText, jdSlug = null }) {
+  const fp = computeJdFingerprint(jdText);
+  const db = await getDb();
+  const match = await db.collection('jobs').findOne({ jd_fingerprint: fp });
+  if (match) return { job_id: match.linkedin_id, link_status: 'linked', fingerprint: fp, matched_job: match };
+  return { job_id: `synthetic-${jdSlug || 'unknown'}`, link_status: 'unlinked', fingerprint: fp };
+}
+
+/**
+ * Build the per-job CV file paths (relative to repo root).
+ */
+export function buildCvPaths({ company_slug, title_slug, job_id }) {
+  const dir = `cvs/${company_slug}/${title_slug}`;
+  return {
+    cv_md_path:  `${dir}/${job_id}_cv.md`,
+    cv_tex_path: `${dir}/${job_id}_cv.tex`,
+    cv_pdf_path: `${dir}/${job_id}_cv.pdf`,
+    dir,
+  };
+}
 
 function parseArgs(argv) {
   const out = { jd: null, archetype: null, feedback: null };
@@ -213,7 +242,11 @@ async function main() {
   console.log(JSON.stringify({ ok: true, output: OUT_TAILORED, archetype, companies: meta.companies }, null, 2));
 }
 
-main().catch(err => {
-  console.error('assemble-cv.mjs failed:', err.message);
-  process.exit(1);
-});
+// Only run main() when executed directly (not when imported by tests).
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+if (isMain) {
+  main().catch(err => {
+    console.error('assemble-cv.mjs failed:', err.message);
+    process.exit(1);
+  });
+}
