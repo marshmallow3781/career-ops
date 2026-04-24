@@ -59,3 +59,59 @@ test('generateEvalBlocks: returns empty-stub shape when LLM returns malformed JS
   assert.deepEqual(result.block_h_answers, []);
   assert.ok(result._parse_failed === true, 'should flag parse failure');
 });
+
+import { appendStoryBank } from '../lib/auto-prep.mjs';
+import { writeFileSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+test('appendStoryBank: new stories write to file; dedup by normalized scenario', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'sb-'));
+  const path = join(tmp, 'story-bank.md');
+  writeFileSync(path, '# Story Bank\n\n');
+
+  try {
+    const stories = [
+      { scenario: 'Scaling Kafka to 2K QPS', star_prompt: 'STAR prompt A' },
+      { scenario: 'Privacy compliance rollout', star_prompt: 'STAR prompt B' },
+    ];
+    const added = appendStoryBank({ storyBankPath: path, newStories: stories, companyTag: 'Mercor', dateTag: '2026-04-23' });
+    assert.equal(added, 2);
+    const body = readFileSync(path, 'utf-8');
+    assert.ok(body.includes('Scaling Kafka to 2K QPS'));
+    assert.ok(body.includes('Mercor'));
+
+    // Second call with one duplicate scenario
+    const added2 = appendStoryBank({
+      storyBankPath: path,
+      newStories: [
+        { scenario: 'Scaling Kafka to 2K QPS', star_prompt: 'STAR prompt A duplicate' },
+        { scenario: 'New unique scenario', star_prompt: 'STAR prompt C' },
+      ],
+      companyTag: 'Google',
+      dateTag: '2026-04-23',
+    });
+    assert.equal(added2, 1, 'only new unique story should be appended');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('appendStoryBank: bootstraps file if missing', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'sb-'));
+  const path = join(tmp, 'story-bank.md');  // does not exist yet
+  try {
+    const added = appendStoryBank({
+      storyBankPath: path,
+      newStories: [{ scenario: 'first story', star_prompt: 'prompt' }],
+      companyTag: 'Acme',
+      dateTag: '2026-04-23',
+    });
+    assert.equal(added, 1);
+    const body = readFileSync(path, 'utf-8');
+    assert.ok(body.startsWith('# Story Bank'));
+    assert.ok(body.includes('first story'));
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
