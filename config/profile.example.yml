@@ -157,3 +157,5 @@ cv:
       frontend: fullstack_ai_2.0.pdf          # reuses fullstack for now
       machine_learning: applied_ai_2.0.pdf    # file not yet present
       applied_ai: applied_ai_2.0.pdf          # file not yet present
+  auto_prep:
+    min_score: 8
