@@ -159,3 +159,53 @@ cv:
       applied_ai: applied_ai_2.0.pdf          # file not yet present
   auto_prep:
     min_score: 8
+
+# Auto-apply agent (apply-bot.mjs).
+# Ships dry-run by default; pass --submit to unlock real submissions.
+# OVERRIDE of CLAUDE.md "never auto-submit" rule — deliberate choice.
+application_form_defaults:
+  personal:
+    full_name: "Your Name"
+    preferred_name: ""
+    email: "you@example.com"
+    phone: "+1-555-0100"
+    address: ""
+    city: "San Francisco"
+    province_state: "CA"
+    country: "United States"
+    postal_code: ""
+    linkedin_url: ""
+    github_url: ""
+    portfolio_url: ""
+    website_url: ""
+  work_authorization:
+    legally_authorized_to_work: "Yes"
+    require_sponsorship: "No"
+    work_permit_type: ""
+  availability:
+    earliest_start_date: "Immediately"
+    available_for_full_time: "Yes"
+    available_for_contract: "No"
+  compensation:
+    salary_expectation: "200000"
+    salary_currency: "USD"
+    salary_range_min: "180000"
+    salary_range_max: "240000"
+  experience:
+    years_of_experience_total: "5"
+    education_level: "Bachelor's Degree"
+    current_job_title: ""
+    current_company: ""
+    target_role: "Senior Backend Engineer"
+  eeo_voluntary:
+    gender: "Decline to self-identify"
+    race_ethnicity: "Decline to self-identify"
+    veteran_status: "I am not a protected veteran"
+    disability_status: "I do not wish to answer"
+  auto_apply:
+    enabled: true
+    min_score: 9
+    workers: 2
+    capsolver_enabled: true
+    capsolver_budget_usd: 5.0
+    max_steps_per_job: 25
