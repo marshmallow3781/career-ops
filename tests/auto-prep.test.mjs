@@ -116,6 +116,70 @@ test('appendStoryBank: bootstraps file if missing', () => {
   }
 });
 
+import { MongoClient } from 'mongodb';
+import { MongoMemoryServer } from 'mongodb-memory-server';
+import { _resetDbForTesting, connectWithClient } from '../lib/db.mjs';
+import { runAutoPrep } from '../auto-prep.mjs';
+
+test('runAutoPrep: skips jobs with application_id set (dedup X)', { timeout: 30000 }, async () => {
+  const mongod = await MongoMemoryServer.create();
+  const client = new MongoClient(mongod.getUri());
+  await client.connect();
+  await connectWithClient(client, 'test-auto-prep');
+  const db = client.db('test-auto-prep');
+
+  try {
+    await db.collection('jobs').insertOne({
+      linkedin_id: 'j-applied',
+      stage: 'scored',
+      prefilter_score: 9,
+      prefilter_archetype: 'backend',
+      company: 'X', title: 'Backend',
+      first_seen_at: new Date(),
+      application_id: 42,  // already applied
+    });
+
+    const result = await runAutoPrep({
+      minScore: 8,
+      mockLlmClient: null,
+      mockLegitimacy: null,
+      mockRenderPdf: null,
+    });
+    assert.equal(result.processed, 0);
+    assert.equal(result.skipped_already_applied, 1);
+  } finally {
+    await client.close();
+    await mongod.stop();
+    _resetDbForTesting();
+  }
+});
+
+test('runAutoPrep: skips jobs whose archetype has no PDF (dedup Y)', { timeout: 30000 }, async () => {
+  const mongod = await MongoMemoryServer.create();
+  const client = new MongoClient(mongod.getUri());
+  await client.connect();
+  await connectWithClient(client, 'test-auto-prep-y');
+
+  try {
+    await client.db('test-auto-prep-y').collection('jobs').insertOne({
+      linkedin_id: 'j-no-pdf',
+      stage: 'scored',
+      prefilter_score: 9,
+      prefilter_archetype: 'applied_ai',  // maps to applied_ai_2.0.pdf (not on disk)
+      company: 'X', title: 'AI Eng',
+      first_seen_at: new Date(),
+      application_id: null,
+    });
+    const result = await runAutoPrep({ minScore: 8 });
+    assert.equal(result.processed, 0);
+    assert.equal(result.skipped_no_pdf, 1);
+  } finally {
+    await client.close();
+    await mongod.stop();
+    _resetDbForTesting();
+  }
+});
+
 import { renderReport } from '../lib/auto-prep.mjs';
 import { renderPdf } from '../generate-pdf.mjs';
 
