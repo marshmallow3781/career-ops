@@ -240,3 +240,21 @@ test('renderReport: combines blocks + legitimacy into expected markdown', () => 
   assert.ok(md.includes('## Block G — Posting Legitimacy'));
   assert.ok(md.includes('## Block H — Draft Application Answers'));
 });
+
+test('generateEvalBlocks: includes block_cover_letter in LLM output', async () => {
+  const cl = '250 words of cover letter body referencing the role and company...';
+  const responseJson = JSON.stringify({
+    block_a: 'role summary',
+    block_b_rows: [{ req: 'Go', evidence: 'LinkedIn' }],
+    block_e: 'personalization plan',
+    block_f_stories: [{ scenario: 'x', star_prompt: 'y' }],
+    block_h_answers: [{ prompt: 'why acme?', answer: 'a' }],
+    block_cover_letter: cl,
+  });
+  const client = mockLlmClient(responseJson);
+  const result = await generateEvalBlocks({
+    jdText: 'JD', candidateSummary: 'summary', tierBreakdown: null, existingStoryThemes: [],
+    llmClient: client, llmConfig: { provider: 'anthropic', model: 'x' },
+  });
+  assert.equal(result.block_cover_letter, cl);
+});
