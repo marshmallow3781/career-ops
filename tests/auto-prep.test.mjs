@@ -61,7 +61,7 @@ test('generateEvalBlocks: returns empty-stub shape when LLM returns malformed JS
 });
 
 import { appendStoryBank } from '../lib/auto-prep.mjs';
-import { writeFileSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdtempSync, rmSync, existsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -117,6 +117,22 @@ test('appendStoryBank: bootstraps file if missing', () => {
 });
 
 import { renderReport } from '../lib/auto-prep.mjs';
+import { renderPdf } from '../generate-pdf.mjs';
+
+test('renderPdf: renders a minimal HTML to a PDF file', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'pdf-'));
+  const htmlPath = join(tmp, 'in.html');
+  const pdfPath = join(tmp, 'out.pdf');
+  writeFileSync(htmlPath, '<!doctype html><html><body><h1>Hello</h1><p>body text</p></body></html>');
+  try {
+    const result = await renderPdf({ htmlPath, pdfPath, format: 'letter' });
+    assert.ok(existsSync(pdfPath), 'PDF file should exist');
+    assert.ok(statSync(pdfPath).size > 500, 'PDF should be non-trivial size');
+    assert.equal(result.outputPath, pdfPath);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
 
 test('renderReport: combines blocks + legitimacy into expected markdown', () => {
   const blocks = {
