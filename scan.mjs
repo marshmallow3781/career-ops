@@ -445,13 +445,22 @@ function filterByPostedAt(jobs, sinceHours) {
   });
 }
 
-async function main() {
-  const args = process.argv.slice(2);
-  const dryRun = args.includes('--dry-run');
+/**
+ * Top-level scan orchestration: load config, fetch jobs from portals,
+ * filter, upsert to Mongo, print summary.
+ *
+ * Extracted from main() so auto-prep / run-pipeline can invoke scan
+ * in-process without shelling out.
+ *
+ * @param {object} [params]
+ * @param {number|null} [params.sinceHours] — explicit time window override.
+ *   null = use the module's existing default logic (resolveSinceHours).
+ * @param {boolean} [params.dryRun] — skip writes (Mongo + files).
+ * @param {string|null} [params.filterCompany] — restrict scan to a single company (substring match).
+ */
+export async function runScan({ sinceHours = null, dryRun = false, filterCompany = null } = {}) {
+  const resolvedSinceHours = sinceHours !== null ? sinceHours : resolveSinceHours([]);
   const runStartedAt = new Date();
-  const companyFlag = args.indexOf('--company');
-  const filterCompany = companyFlag !== -1 ? args[companyFlag + 1]?.toLowerCase() : null;
-  const sinceHours = resolveSinceHours(args);
 
   // 1. Read portals.yml
   if (!existsSync(PORTALS_PATH)) {
@@ -483,7 +492,7 @@ async function main() {
   const skippedCount = companies.filter(c => c.enabled !== false).length - targets.length;
 
   console.log(`Scanning ${targets.length} companies via API (${skippedCount} skipped — no API detected)`);
-  console.log(`Time window: last ${sinceHours}h (auto: ${sinceHours === 24 ? '7am PST baseline' : 'off-peak'}; override with --since-hours=N)`);
+  console.log(`Time window: last ${resolvedSinceHours}h (auto: ${resolvedSinceHours === 24 ? '7am PST baseline' : 'off-peak'}; override with --since-hours=N)`);
   if (dryRun) console.log('(dry run — no files will be written)\n');
 
   // 3. Load dedup sets
@@ -498,7 +507,7 @@ async function main() {
   const newOffers = [];
   const errors = [];
 
-  let totalStale = 0;  // jobs older than sinceHours window
+  let totalStale = 0;  // jobs older than resolvedSinceHours window
   let totalLocationFiltered = 0;
   let totalBlacklisted = 0;
 
@@ -508,7 +517,7 @@ async function main() {
       const json = await fetchJson(url);
       const allJobs = PARSERS[type](json, company.name);
       totalFound += allJobs.length;
-      const jobs = filterByPostedAt(allJobs, sinceHours);
+      const jobs = filterByPostedAt(allJobs, resolvedSinceHours);
       totalStale += (allJobs.length - jobs.length);
 
       for (const job of jobs) {
@@ -583,7 +592,7 @@ async function main() {
   console.log(`${'━'.repeat(45)}`);
   console.log(`Companies scanned:     ${targets.length}`);
   console.log(`Total jobs found:      ${totalFound}`);
-  console.log(`Outside time window:   ${totalStale} skipped (posted_at older than ${sinceHours}h)`);
+  console.log(`Outside time window:   ${totalStale} skipped (posted_at older than ${resolvedSinceHours}h)`);
   console.log(`Blacklisted companies: ${totalBlacklisted} skipped`);
   console.log(`Outside location:      ${totalLocationFiltered} skipped (no allow match OR deny match)`);
   console.log(`Filtered by title:     ${totalFiltered} removed`);
@@ -621,9 +630,22 @@ async function main() {
   await closeDb();
 }
 
+async function main() {
+  const args = process.argv.slice(2);
+  const dryRun = args.includes('--dry-run');
+  const companyFlag = args.indexOf('--company');
+  const filterCompany = companyFlag !== -1 ? args[companyFlag + 1]?.toLowerCase() : null;
+  let sinceHours = null;
+  for (const a of args) {
+    const m = a.match(/^--since-hours=(\d+)$/);
+    if (m) sinceHours = parseInt(m[1], 10);
+  }
+  await runScan({ sinceHours, dryRun, filterCompany });
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch(err => {
-    console.error('Fatal:', err.message);
+    console.error('scan.mjs failed:', err);
     process.exit(1);
   });
 }
