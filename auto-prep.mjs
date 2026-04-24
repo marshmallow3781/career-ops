@@ -107,6 +107,7 @@ async function renderTailoredToHtml(cvMdPath, dir) {
  */
 export async function runAutoPrep({
   minScore: explicitMinScore = null,
+  sinceHours = 24,
   mockLlmClient = null,
   mockLegitimacy = null,
   mockRenderPdf = null,
@@ -119,7 +120,7 @@ export async function runAutoPrep({
   }
 
   const db = await getDb();
-  const cutoff = new Date(Date.now() - 24 * 3600 * 1000);
+  const cutoff = new Date(Date.now() - sinceHours * 3600 * 1000);
 
   const stats = { processed: 0, skipped_no_pdf: 0, skipped_already_applied: 0, errors: 0 };
 
