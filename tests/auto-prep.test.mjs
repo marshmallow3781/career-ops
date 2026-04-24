@@ -258,3 +258,25 @@ test('generateEvalBlocks: includes block_cover_letter in LLM output', async () =
   });
   assert.equal(result.block_cover_letter, cl);
 });
+
+import { writeCoverLetterArtifacts } from '../lib/auto-prep.mjs';
+
+test('writeCoverLetterArtifacts: writes .md with cover letter body', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'cl-'));
+  const mdPath = join(tmp, 'cover_letter.md');
+  const body = 'Dear Hiring Team,\n\nI am excited to apply...';
+  const profile = {
+    candidate: { full_name: 'Test User', email: 't@x.com', phone: '555' },
+    location: { city: 'SF' },
+  };
+  const job = { company: 'Acme', title: 'Engineer' };
+  await writeCoverLetterArtifacts({
+    coverLetterMarkdown: body,
+    profile, job,
+    mdPath, pdfPath: null,  // skip PDF for this unit test
+  });
+  assert.ok(existsSync(mdPath));
+  const written = readFileSync(mdPath, 'utf-8');
+  assert.ok(written.includes('I am excited to apply'));
+  rmSync(tmp, { recursive: true, force: true });
+});

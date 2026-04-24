@@ -23,7 +23,7 @@ import { runPickerMode, runAssemblerMode, buildCvPaths } from './assemble-cv.mjs
 import { renderPdf } from './generate-pdf.mjs';
 import { resolvePickerResume } from './lib/picker.mjs';
 import { persistReport } from './lib/reports.mjs';
-import { generateEvalBlocks, appendStoryBank, renderReport } from './lib/auto-prep.mjs';
+import { generateEvalBlocks, appendStoryBank, renderReport, writeCoverLetterArtifacts } from './lib/auto-prep.mjs';
 import { verifyLegitimacy } from './lib/legitimacy.mjs';
 import { initLlm } from './lib/llm.mjs';
 import { loadAllSources } from './assemble-core.mjs';
@@ -232,6 +232,21 @@ export async function runAutoPrep({
         companyTag: job.company,
         dateTag: new Date().toISOString().slice(0, 10),
       });
+
+      // Cover letter artifacts — both .md and .pdf for the auto-apply agent.
+      const coverMdPath  = resolve(__dirname, `cvs/${company_slug}/${title_slug}/${job_id}_cover_letter.md`);
+      const coverPdfPath = resolve(__dirname, `cvs/${company_slug}/${title_slug}/${job_id}_cover_letter.pdf`);
+      try {
+        await writeCoverLetterArtifacts({
+          coverLetterMarkdown: blocks.block_cover_letter || '',
+          profile, job,
+          mdPath: coverMdPath,
+          pdfPath: coverPdfPath,
+        });
+      } catch (err) {
+        console.error(`[auto-prep] cover-letter PDF failed for ${job.company}: ${err.message}`);
+        // .md may still have been written; continue with the job
+      }
 
       const num = await getNextApplicationNum();
       await upsertApplication({
