@@ -115,3 +115,42 @@ test('appendStoryBank: bootstraps file if missing', () => {
     rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+import { renderReport } from '../lib/auto-prep.mjs';
+
+test('renderReport: combines blocks + legitimacy into expected markdown', () => {
+  const blocks = {
+    block_a: 'Acme hiring backend engineer.',
+    block_b_rows: [
+      { req: 'Go', evidence: 'LinkedIn 531M events' },
+      { req: 'Kafka', evidence: 'TikTok pipelines' },
+    ],
+    block_e: 'Lead with scale.',
+    block_f_stories: [
+      { scenario: 'Kafka 2K QPS', star_prompt: 'STAR prompt' },
+    ],
+    block_h_answers: [
+      { prompt: 'Why Acme?', answer: 'Their distributed investment.' },
+    ],
+  };
+  const legitimacy = { tier: 'confirmed', signals: ['has_h1', 'has_apply_button'] };
+  const job = {
+    company: 'Acme',
+    title: 'Backend Engineer',
+    url: 'https://example.com/job',
+    prefilter_archetype: 'backend',
+    prefilter_score: 9,
+  };
+
+  const md = renderReport({ blocks, legitimacy, job, score: 4.5, pdfPath: 'cvs/acme/be/123_cv_picker.pdf' });
+  assert.ok(md.startsWith('# Acme — Backend Engineer'));
+  assert.ok(md.includes('**Score:** 4.5/5'));
+  assert.ok(md.includes('**Legitimacy:** confirmed'));
+  assert.ok(md.includes('## Block A — Resumen del Rol'));
+  assert.ok(md.includes('## Block B — Match con CV'));
+  assert.ok(md.includes('| Go | LinkedIn 531M events |'));
+  assert.ok(md.includes('## Block E — Plan de Personalización'));
+  assert.ok(md.includes('## Block F — Plan de Entrevistas'));
+  assert.ok(md.includes('## Block G — Posting Legitimacy'));
+  assert.ok(md.includes('## Block H — Draft Application Answers'));
+});
