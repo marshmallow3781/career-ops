@@ -127,22 +127,33 @@ export async function runAutoPrep({
 
   const stats = { processed: 0, skipped_no_pdf: 0, skipped_already_applied: 0, errors: 0 };
 
-  // Count already-applied matches separately so tests can verify dedup X
-  stats.skipped_already_applied = await db.collection('jobs').countDocuments({
-    first_seen_at: { $gte: cutoff },
-    stage: 'scored',
-    prefilter_score: { $gte: minScore },
-    application_id: { $ne: null },
-  });
+  // Dedup X: build a set of job_ids that already have an application row.
+  // (jobs.application_id is never written by upsertApplication — applications
+  // are keyed by job_id on the applications collection itself. The prior
+  // dedup-X check on jobs.application_id was a no-op that allowed duplicate
+  // reports on every re-run → E11000 on reports.job_id_1.)
+  const appliedJobIds = new Set(
+    (await db.collection('applications').find({}, { projection: { job_id: 1, _id: 0 } }).toArray())
+      .map(a => a.job_id)
+  );
 
-  const eligible = await db.collection('jobs').find({
+  const candidates = await db.collection('jobs').find({
     first_seen_at: { $gte: cutoff },
     stage: 'scored',
     prefilter_score: { $gte: minScore },
-    application_id: null,
   }).sort({ prefilter_score: -1 }).toArray();
 
-  console.error(`[auto-prep] ${eligible.length} candidate jobs, min_score=${minScore}`);
+  const eligible = [];
+  for (const j of candidates) {
+    const jobKey = j.linkedin_id || j.url || '';
+    if (appliedJobIds.has(jobKey)) {
+      stats.skipped_already_applied++;
+      continue;
+    }
+    eligible.push(j);
+  }
+
+  console.error(`[auto-prep] ${eligible.length} candidate jobs (${stats.skipped_already_applied} skipped_already_applied), min_score=${minScore}`);
 
   const { client: llmClient, config: llmConfig } = mockLlmClient
     ? { client: mockLlmClient, config: { provider: 'anthropic', model: 'mock' } }

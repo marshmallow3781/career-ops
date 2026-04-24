@@ -121,7 +121,7 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import { _resetDbForTesting, connectWithClient } from '../lib/db.mjs';
 import { runAutoPrep } from '../auto-prep.mjs';
 
-test('runAutoPrep: skips jobs with application_id set (dedup X)', { timeout: 30000 }, async () => {
+test('runAutoPrep: skips jobs that already have an application row (dedup X)', { timeout: 30000 }, async () => {
   const mongod = await MongoMemoryServer.create();
   const client = new MongoClient(mongod.getUri());
   await client.connect();
@@ -129,6 +129,7 @@ test('runAutoPrep: skips jobs with application_id set (dedup X)', { timeout: 300
   const db = client.db('test-auto-prep');
 
   try {
+    // Job is scored ≥ threshold …
     await db.collection('jobs').insertOne({
       linkedin_id: 'j-applied',
       stage: 'scored',
@@ -136,7 +137,12 @@ test('runAutoPrep: skips jobs with application_id set (dedup X)', { timeout: 300
       prefilter_archetype: 'backend',
       company: 'X', title: 'Backend',
       first_seen_at: new Date(),
-      application_id: 42,  // already applied
+    });
+    // … and already has an application row keyed by job_id.
+    await db.collection('applications').insertOne({
+      num: 42,
+      job_id: 'j-applied',
+      status: 'Applied',
     });
 
     const result = await runAutoPrep({
