@@ -11,8 +11,9 @@
  */
 
 import 'dotenv/config';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve, dirname, join, basename } from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import {
   loadConfig, loadAllSources, validateConsistency, sortCompanies,
@@ -74,7 +75,17 @@ function parseArgs(argv) {
   return out;
 }
 
-async function runPickerMode({ jdPath, archetypeOverride }) {
+/**
+ * Picker mode: select a pre-made PDF by archetype + extract text.
+ *
+ * @param {object} params
+ * @param {string} params.jdPath
+ * @param {string|null} [params.archetypeOverride]
+ * @param {object} [params.outputPaths] — { cv_md_path, cv_meta_path }. When
+ *   omitted, writes to repo-root cv.tailored.md + .cv-tailored-meta.json
+ *   (preserves CLI default behavior).
+ */
+export async function runPickerMode({ jdPath, archetypeOverride, outputPaths }) {
   const jdText = readFileSync(resolve(jdPath), 'utf-8');
 
   // Load picker config from profile.yml (not loadConfig — we want raw YAML).
@@ -109,27 +120,32 @@ async function runPickerMode({ jdPath, archetypeOverride }) {
     meta.source_pdf = resolved.path;
   }
 
-  writeFileSync(OUT_TAILORED, cvText);
-  writeFileSync(OUT_META, JSON.stringify(meta, null, 2));
+  const mdPath = outputPaths?.cv_md_path ? resolve(__dirname, outputPaths.cv_md_path) : OUT_TAILORED;
+  const metaPath = outputPaths?.cv_meta_path ? resolve(__dirname, outputPaths.cv_meta_path) : OUT_META;
+  mkdirSync(dirname(mdPath), { recursive: true });
+  writeFileSync(mdPath, cvText);
+  writeFileSync(metaPath, JSON.stringify(meta, null, 2));
   console.error(`[picker] archetype=${archetype} → ${resolved.filename || '(placeholder)'}`);
+
+  return { archetype, source_pdf: meta.source_pdf, missing: meta.missing || false, cv_md_path: mdPath, cv_meta_path: metaPath };
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
-  if (!args.jd) {
-    console.error('Usage: node assemble-cv.mjs --jd=<path> [--archetype=...] [--feedback=...] [--mode=picker|assembler]');
-    process.exit(1);
-  }
-
-  if (args.mode === 'picker') {
-    await runPickerMode({ jdPath: args.jd, archetypeOverride: args.archetype });
-    return;
-  }
-
+/**
+ * Assembler mode: pick bullets from experience_source/ + LLM-tailor per JD.
+ *
+ * @param {object} params
+ * @param {string} params.jdPath
+ * @param {string|null} [params.archetypeOverride]
+ * @param {string|null} [params.feedbackPath]
+ * @param {object} [params.outputPaths] — { cv_md_path, cv_meta_path, dir }. When
+ *   omitted, writes to repo-root paths AND per-job paths (current CLI behavior).
+ *   When supplied, only writes to the supplied paths.
+ */
+export async function runAssemblerMode({ jdPath, archetypeOverride, feedbackPath, outputPaths }) {
   let excludeBullets = [];
-  if (args.feedback) {
+  if (feedbackPath) {
     try {
-      const errs = JSON.parse(readFileSync(resolve(args.feedback), 'utf-8'));
+      const errs = JSON.parse(readFileSync(resolve(feedbackPath), 'utf-8'));
       excludeBullets = (errs.errors || [])
         .filter(e => e.type === 'fabricated_bullet')
         .map(e => e.bullet);
@@ -138,15 +154,15 @@ async function main() {
     }
   }
 
-  const jdText = readFileSync(resolve(args.jd), 'utf-8');
+  const jdText = readFileSync(resolve(jdPath), 'utf-8');
   const config = loadConfig(PROFILE_PATH);
   const sources = loadAllSources(SOURCES_ROOT);
   validateConsistency(sources);
 
-  const meta = { jd: args.jd, archetype: null, intent: null, companies: [] };
+  const meta = { jd: jdPath, archetype: null, intent: null, companies: [] };
 
   // 1. Classify archetype (for logging / top_bullets_full defaults only — NOT facet filter)
-  const archetype = args.archetype || await classifyArchetype(jdText);
+  const archetype = archetypeOverride || await classifyArchetype(jdText);
   meta.archetype = archetype;
 
   // 1b. Detect signals deterministically (always runs, used as raw material
@@ -287,19 +303,18 @@ async function main() {
   const md = renderTailored({ profile: config, companies, projects, competencies, summary });
 
   // 10. Derive per-job paths + metadata
-  const jdSlug = args.jd.replace(/^.*\//, '').replace(/\.md$/, '');
+  const jdSlug = jdPath.replace(/^.*\//, '').replace(/\.md$/, '');
   const { job_id, link_status, fingerprint, matched_job } = await deriveJobIdForCv({ jdText, jdSlug });
   const company_slug = matched_job?.company_slug || jdSlug;
   const title_slug = matched_job ? matched_job.title_normalized : jdSlug;
-  const paths = buildCvPaths({ company_slug, title_slug, job_id });
+  const paths = outputPaths || buildCvPaths({ company_slug, title_slug, job_id });
 
-  const { mkdirSync } = await import('node:fs');
-  mkdirSync(resolve(__dirname, paths.dir), { recursive: true });
+  const dirToMake = resolve(__dirname, paths.dir || dirname(paths.cv_md_path));
+  mkdirSync(dirToMake, { recursive: true });
 
   const cvMdFullPath = resolve(__dirname, paths.cv_md_path);
   writeFileSync(cvMdFullPath, md);
 
-  const { createHash } = await import('node:crypto');
   const checksum_md = 'sha256:' + createHash('sha256').update(md).digest('hex');
 
   const profileText = readFileSync(PROFILE_PATH, 'utf-8');
@@ -320,9 +335,13 @@ async function main() {
     _link_status: link_status,
   });
 
-  // Back-compat: keep writing cv.tailored.md as the flat "latest CV"
-  writeFileSync(OUT_TAILORED, md);
-  writeFileSync(OUT_META, JSON.stringify(meta, null, 2));
+  if (!outputPaths) {
+    // Back-compat: keep writing cv.tailored.md as the flat "latest CV"
+    writeFileSync(OUT_TAILORED, md);
+    writeFileSync(OUT_META, JSON.stringify(meta, null, 2));
+  } else if (outputPaths.cv_meta_path) {
+    writeFileSync(resolve(__dirname, outputPaths.cv_meta_path), JSON.stringify({ ...meta, checksum_md, job_id, link_status, fingerprint }, null, 2));
+  }
 
   console.log(JSON.stringify({
     ok: true,
@@ -333,6 +352,21 @@ async function main() {
     archetype,
     companies: meta.companies,
   }, null, 2));
+
+  return { archetype, job_id, link_status, cv_md_path: cvMdFullPath, paths, companies, meta };
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (!args.jd) {
+    console.error('Usage: node assemble-cv.mjs --jd=<path> [--archetype=...] [--feedback=...] [--mode=picker|assembler]');
+    process.exit(1);
+  }
+  if (args.mode === 'picker') {
+    await runPickerMode({ jdPath: args.jd, archetypeOverride: args.archetype });
+  } else {
+    await runAssemblerMode({ jdPath: args.jd, archetypeOverride: args.archetype, feedbackPath: args.feedback });
+  }
 }
 
 // Only run main() when executed directly (not when imported by tests).
