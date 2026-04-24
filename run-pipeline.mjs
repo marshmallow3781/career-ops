@@ -38,10 +38,11 @@ import { initLlm } from './lib/llm.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 function parseArgs(argv) {
-  const out = { locations: null, hours: null, skipApify: false, skipScan: false };
+  const out = { locations: null, hours: null, skipApify: false, skipScan: false, includeAssembler: false };
   for (const a of argv) {
     if (a === '--skip-apify') out.skipApify = true;
     else if (a === '--skip-scan') out.skipScan = true;
+    else if (a === '--include-assembler') out.includeAssembler = true;
     else if (a.startsWith('--location=')) out.locations = [a.split('=')[1]];
     else if (a.startsWith('--locations=')) out.locations = a.split('=')[1].split(',').map(s => s.trim()).filter(Boolean);
     else if (a.startsWith('--hours=')) out.hours = parseInt(a.split('=')[1], 10);
@@ -129,9 +130,9 @@ async function stage3Score({ hours }) {
   await runDigestStage2AndScoring({ candidates, portals, profile, sources, haikuClient, llmConfig, dealBreakers });
 }
 
-async function stage4AutoPrep({ hours }) {
-  console.error(`[pipeline] auto-prep starting… sinceHours=${hours ?? 24}`);
-  return runAutoPrep({ sinceHours: hours ?? 24 });
+async function stage4AutoPrep({ hours, includeAssembler }) {
+  console.error(`[pipeline] auto-prep starting… sinceHours=${hours ?? 24}  includeAssembler=${!!includeAssembler}`);
+  return runAutoPrep({ sinceHours: hours ?? 24, includeAssembler });
 }
 
 async function main() {
@@ -141,7 +142,7 @@ async function main() {
     if (!args.skipApify) await stage1Apify({ locations: args.locations, hours: args.hours });
     if (!args.skipScan)  await stage2Scan({ hours: args.hours });
     await stage3Score({ hours: args.hours });
-    await stage4AutoPrep({ hours: args.hours });
+    await stage4AutoPrep({ hours: args.hours, includeAssembler: args.includeAssembler });
   } catch (err) {
     console.error('[pipeline] fatal:', err.message);
   } finally {

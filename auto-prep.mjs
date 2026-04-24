@@ -108,6 +108,9 @@ async function renderTailoredToHtml(cvMdPath, dir) {
 export async function runAutoPrep({
   minScore: explicitMinScore = null,
   sinceHours = 24,
+  includeAssembler = false,  // off by default — assembler is ~5-10min/job and its output
+                              // (tailored .md) is not consumed by any downstream step.
+                              // Opt-in for users who want the tailored .md for manual review.
   mockLlmClient = null,
   mockLegitimacy = null,
   mockRenderPdf = null,
@@ -163,27 +166,19 @@ export async function runAutoPrep({
       const title_slug = (job.title_normalized || slug).toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60);
       const company_slug = job.company_slug || slug;
       const job_id = job.linkedin_id || slug;
-      const tailored_paths = {
-        dir: `cvs/${company_slug}/${title_slug}`,
-        cv_md_path: `cvs/${company_slug}/${title_slug}/${job_id}_cv_tailored.md`,
-        cv_meta_path: `cvs/${company_slug}/${title_slug}/${job_id}_cv_tailored.meta.json`,
-        cv_pdf_path: `cvs/${company_slug}/${title_slug}/${job_id}_cv_tailored.pdf`,
-      };
-      await runAssemblerMode({ jdPath, archetypeOverride: job.prefilter_archetype, outputPaths: tailored_paths });
 
-      const tailoredPdfAbs = resolve(__dirname, tailored_paths.cv_pdf_path);
-      let tailoredPdfReady = false;
-      if (mockRenderPdf) {
-        writeFileSync(tailoredPdfAbs, 'mock PDF content');
-        tailoredPdfReady = true;
-      } else {
-        try {
-          const htmlPath = await renderTailoredToHtml(tailored_paths.cv_md_path, tailored_paths.dir);
-          await renderPdf({ htmlPath, pdfPath: tailoredPdfAbs, format: 'letter' });
-          tailoredPdfReady = true;
-        } catch (e) {
-          console.error(`[auto-prep] tailored PDF skipped for ${job.company}: ${e.message}`);
-        }
+      // Tailored CV assembly is off by default — each call spends ~5-10 min
+      // on LLM (intent extraction + pickBullets per facet with retries) for
+      // a .md file no auto-prep step downstream consumes. Opt-in via
+      // includeAssembler: true if you want the tailored .md for a specific
+      // application's manual review.
+      if (includeAssembler) {
+        const tailored_paths = {
+          dir: `cvs/${company_slug}/${title_slug}`,
+          cv_md_path: `cvs/${company_slug}/${title_slug}/${job_id}_cv_tailored.md`,
+          cv_meta_path: `cvs/${company_slug}/${title_slug}/${job_id}_cv_tailored.meta.json`,
+        };
+        await runAssemblerMode({ jdPath, archetypeOverride: job.prefilter_archetype, outputPaths: tailored_paths });
       }
 
       const picker_paths = {
